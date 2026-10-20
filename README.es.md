@@ -117,6 +117,9 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | `history` | Atrás / adelante |
 | `snapshot` | Vista compacta de la página con referencias a elementos (`[e12]`) (incluye iframes) |
 | `read` | Texto de la página como texto plano (por defecto, el contenido principal) |
+| `network` | Respuestas JSON (fetch/XHR) que recibieron las pestañas de este pod, solo lectura |
+| `response` | El cuerpo JSON de una respuesta, con datos sensibles ocultos y tamaño limitado; `path` elige una parte |
+| `page_data` | Datos incrustados en la página: JSON-LD, `__NEXT_DATA__`, etiquetas script JSON |
 | `click` | Hace clic por referencia |
 | `type` | Rellena un campo por referencia y, opcionalmente, pulsa Enter |
 | `press` | Tecla o atajo de teclado |
@@ -151,6 +154,7 @@ Lee esto antes de iniciar sesión en algo importante.
 - **Puerto en localhost.** La estación escucha únicamente en `127.0.0.1`. Cualquier programa que se ejecute en tu equipo con tu usuario podría conectarse a ese puerto mientras la estación esté abierta. Cierra la estación cuando no la estés usando.
 - **El aislamiento es entre agentes y ventanas, no entre sitios.** Los pods comparten cookies a propósito: así es como funcionan las sesiones. Un agente, desde su pod, puede usar cualquier sitio en el que hayas iniciado sesión en la estación.
 - **Inyección de prompts.** Las páginas web pueden contener texto pensado para manipular a los agentes. Limita los permisos del agente y las sesiones de la estación a lo estrictamente necesario para la tarea.
+- **Las herramientas de datos son de solo lectura y ocultan secretos.** `network`, `response` y `page_data` solo leen lo que las pestañas de este pod ya recibieron. Nunca devuelven cabeceras, ocultan claves que parecen secretas (token, password, session, csrf…) y valores con forma de token (JWT, `Bearer …`, formatos comunes de claves de API), y limitan el tamaño de cada resultado. El ocultado es una red de seguridad, no una garantía: el agente aún puede leer la propia página.
 - **Código abierto, sin telemetría.** Specillum no envía ningún dato a ninguna parte, y cada línea de código está en este repositorio. Chrome mantiene su propia configuración y telemetría como de costumbre.
 
 ## Preguntas frecuentes

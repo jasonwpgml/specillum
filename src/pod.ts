@@ -2,8 +2,25 @@
 // hands out pages it opened itself (or popups those pages opened), so an
 // agent cannot see or touch the user's tabs or another agent's pod.
 import type { Browser, BrowserContext, CDPSession, Page, Request } from "playwright-core";
+import { isJsonType } from "./data.js";
 
 const CONTENT_REQUESTS = new Set(["document", "script", "xhr", "fetch"]);
+
+// A response one of the pod's pages received from a fetch or XHR. Only JSON
+// bodies are kept, parsed, and only up to MAX_BODY characters.
+export type Captured = {
+  id: number;
+  page: Page;
+  method: string;
+  url: string;
+  status: number;
+  contentType: string;
+  json?: unknown;
+  chars?: number;
+  skipped?: string;
+};
+const MAX_CAPTURED = 150;
+const MAX_BODY = 2_000_000;
 
 async function targetIdOf(context: BrowserContext, page: Page): Promise<string> {
   const session = await context.newCDPSession(page);
@@ -86,6 +103,32 @@ export class Pod {
     await this.cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: this.windowState } });
   }
 
+  readonly captured: Captured[] = [];
+  private nextCaptureId = 1;
+
+  private async capture(page: Page, req: Request): Promise<void> {
+    const res = await req.response().catch(() => null);
+    if (!res) return;
+    const contentType = (await res.headerValue("content-type").catch(() => null)) ?? "";
+    const entry: Captured = { id: this.nextCaptureId++, page, method: req.method(), url: req.url(), status: res.status(), contentType };
+    if (!isJsonType(contentType)) entry.skipped = "not JSON";
+    else {
+      const body = await res.text().catch(() => undefined);
+      if (body === undefined) entry.skipped = "body unavailable";
+      else if (body.length > MAX_BODY) entry.skipped = `too large (${body.length} chars)`;
+      else {
+        try {
+          entry.json = JSON.parse(body);
+          entry.chars = body.length;
+        } catch {
+          entry.skipped = "invalid JSON";
+        }
+      }
+    }
+    this.captured.push(entry);
+    if (this.captured.length > MAX_CAPTURED) this.captured.shift();
+  }
+
   // Requests that can still change the page, per pod page.
   private readonly inflight = new Map<Page, Map<Request, number>>();
 
@@ -113,7 +156,10 @@ export class Pod {
     page.on("request", (r) => {
       if (CONTENT_REQUESTS.has(r.resourceType())) inflight.set(r, Date.now());
     });
-    page.on("requestfinished", done);
+    page.on("requestfinished", (r) => {
+      done(r);
+      if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.capture(page, r);
+    });
     page.on("requestfailed", done);
     page.on("popup", (popup) => {
       if (this.pages.includes(popup)) return;

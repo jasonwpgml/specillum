@@ -117,6 +117,9 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | `history` | Back / forward |
 | `snapshot` | Compact view of the page with element refs (`[e12]`) (iframes included) |
 | `read` | Page text as plain text (main content by default) |
+| `network` | JSON responses this pod's tabs received (fetch/XHR), read-only |
+| `response` | One response's JSON body, redacted and size-capped; `path` picks a part |
+| `page_data` | Data the page embeds: JSON-LD, `__NEXT_DATA__`, JSON script tags |
 | `click` | Click by ref |
 | `type` | Fill an input by ref, optionally press Enter |
 | `press` | Keyboard key or shortcut |
@@ -151,6 +154,7 @@ Read this before you log in to anything important.
 - **Localhost port.** The station listens on `127.0.0.1` only. Any program running on your machine as you could connect to that port while the station is open. Close the station when you are not using it.
 - **Isolation is between agents and windows, not between sites.** Pods share cookies on purpose. That is how logins work. An agent in its pod can use any site you are logged in to in the station.
 - **Prompt injection.** Web pages can contain text meant to manipulate agents. Keep the agent's permissions and the station's logins as narrow as the task needs.
+- **Data tools are read-only and redacted.** `network`, `response` and `page_data` only read what this pod's own tabs already received. They never return headers, mask secret-looking keys (token, password, session, csrf…) and token-shaped values (JWT, `Bearer …`, common API key formats), and cap every result. Masking is a safety net, not a guarantee: the agent can still read the page itself.
 - **Open source, no telemetry.** Specillum itself sends no data anywhere, and every line is in this repository. Chrome keeps its own settings and telemetry as usual.
 
 ## FAQ
