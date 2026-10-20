@@ -1,5 +1,7 @@
 # Specillum
 
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md)
+
 **Isolated browser pods for AI agents, inside your own logged-in Chrome.**
 
 Specillum is an open-source [MCP](https://modelcontextprotocol.io) server that lets AI agents such as **Claude Code**, **OpenAI Codex** and **Cursor** browse the web with your real logins, while giving **every agent its own private browser window (a "pod")**. Agents never see or touch your tabs, and they never step on each other.
