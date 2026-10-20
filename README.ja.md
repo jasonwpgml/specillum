@@ -112,9 +112,10 @@ args = ["-y", "specillum"]
 | ツール | 機能 |
 |---|---|
 | `pod_status` | このエージェントのポッドのラベルと、そのタブ |
+| `pod_window` | このポッドのウィンドウをユーザーに表示する、またはタスクバーに最小化する |
 | `navigate` | アクティブなタブで URL を開く |
 | `history` | 戻る / 進む |
-| `snapshot` | 要素の参照（`[e12]`）付きで、ページをコンパクトに表示 |
+| `snapshot` | 要素の参照（`[e12]`）付きで、ページをコンパクトに表示 （iframe を含む） |
 | `read` | ページの内容をプレーンテキストで取得（デフォルトではメインコンテンツ） |
 | `click` | ref を指定してクリック |
 | `type` | ref を指定して入力欄に入力し、必要に応じて Enter を押す |
@@ -124,6 +125,7 @@ args = ["-y", "specillum"]
 | `scroll` | 画面単位でスクロール、または ref の要素が見えるまでスクロール |
 | `wait` | テキストの出現、または一定時間を待つ |
 | `screenshot` | アクティブなタブの JPEG |
+| `dialog` | 次に出る `confirm` / `prompt` ダイアログを承諾または拒否する（既定では alert は承諾、confirm は拒否） |
 | `tabs` | **このポッドのタブに限り**、一覧表示・作成・切り替え・クローズを行う |
 | `evaluate` | アクティブなタブで JavaScript の式を実行 |
 
@@ -138,6 +140,8 @@ args = ["-y", "specillum"]
 | `SPECILLUM_CHROME` | 自動検出 | ブラウザの実行ファイル |
 | `SPECILLUM_POD` | `<client>-<random>` | 固定のポッドラベル |
 | `SPECILLUM_KEEP_POD` | 未設定 | `1` を指定すると、エージェントの終了後もポッドのウィンドウを残す |
+| `SPECILLUM_POD_WINDOW` | `visible` | `minimized` にするとポッドのウィンドウはタスクバーに最小化された状態で開き、そのまま動作する |
+| `SPECILLUM_WINDOW` | `1280x900` | ポッドのウィンドウサイズ |
 
 ## セキュリティモデル
 

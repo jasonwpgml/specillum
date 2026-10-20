@@ -112,9 +112,10 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | Herramienta | Qué hace |
 |---|---|
 | `pod_status` | La etiqueta del pod de este agente y sus pestañas |
+| `pod_window` | Muestra la ventana de este pod al usuario o la minimiza en la barra de tareas |
 | `navigate` | Abre una URL en la pestaña activa |
 | `history` | Atrás / adelante |
-| `snapshot` | Vista compacta de la página con referencias a elementos (`[e12]`) |
+| `snapshot` | Vista compacta de la página con referencias a elementos (`[e12]`) (incluye iframes) |
 | `read` | Texto de la página como texto plano (por defecto, el contenido principal) |
 | `click` | Hace clic por referencia |
 | `type` | Rellena un campo por referencia y, opcionalmente, pulsa Enter |
@@ -124,6 +125,7 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | `scroll` | Desplaza por pantallas, o desplaza hasta que una referencia quede visible |
 | `wait` | Espera a que aparezca un texto o durante un tiempo fijo |
 | `screenshot` | JPEG de la pestaña activa |
+| `dialog` | Acepta o descarta el siguiente diálogo `confirm` / `prompt` (por defecto, los alert se aceptan y los confirm se descartan) |
 | `tabs` | Lista, abre, cambia o cierra pestañas **solo de este pod** |
 | `evaluate` | Ejecuta una expresión de JavaScript en la pestaña activa |
 
@@ -138,6 +140,8 @@ Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot a
 | `SPECILLUM_CHROME` | detección automática | Ejecutable del navegador |
 | `SPECILLUM_POD` | `<client>-<random>` | Etiqueta fija del pod |
 | `SPECILLUM_KEEP_POD` | sin definir | Ponlo en `1` para conservar la ventana del pod cuando el agente termine |
+| `SPECILLUM_POD_WINDOW` | `visible` | Con `minimized`, la ventana del pod se abre minimizada en la barra de tareas y sigue funcionando |
+| `SPECILLUM_WINDOW` | `1280x900` | Tamaño de la ventana del pod |
 
 ## Modelo de seguridad
 

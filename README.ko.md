@@ -112,9 +112,10 @@ args = ["-y", "specillum"]
 | 도구 | 기능 |
 |---|---|
 | `pod_status` | 이 에이전트의 포드 라벨과 탭 목록 |
+| `pod_window` | 이 포드 창을 사용자에게 띄우거나 작업 표시줄로 최소화 |
 | `navigate` | 활성 탭에서 URL 열기 |
 | `history` | 뒤로 / 앞으로 이동 |
-| `snapshot` | 요소 참조(`[e12]`)가 포함된 간결한 페이지 뷰 |
+| `snapshot` | 요소 참조(`[e12]`)가 포함된 간결한 페이지 뷰 (iframe 포함) |
 | `read` | 페이지 내용을 일반 텍스트로 읽기 (기본값은 본문만) |
 | `click` | 참조로 지정한 요소 클릭 |
 | `type` | 참조로 지정한 입력란 채우기, 필요하면 Enter 입력 |
@@ -124,6 +125,7 @@ args = ["-y", "specillum"]
 | `scroll` | 화면 단위로 스크롤하거나, 참조한 요소가 보이도록 스크롤 |
 | `wait` | 특정 텍스트가 나타나거나 지정한 시간이 지날 때까지 대기 |
 | `screenshot` | 활성 탭의 JPEG 스크린샷 |
+| `dialog` | 다음에 뜨는 `confirm`·`prompt` 대화상자를 수락하거나 취소 (기본값: alert는 수락, confirm은 취소) |
 | `tabs` | **이 포드의 탭만** 나열, 열기, 전환, 닫기 |
 | `evaluate` | 활성 탭에서 JavaScript 표현식 실행 |
 
@@ -138,6 +140,8 @@ args = ["-y", "specillum"]
 | `SPECILLUM_CHROME` | 자동 감지 | 브라우저 실행 파일 |
 | `SPECILLUM_POD` | `<client>-<random>` | 고정 포드 라벨 |
 | `SPECILLUM_KEEP_POD` | 설정 안 됨 | `1`로 설정하면 에이전트가 종료된 뒤에도 포드 창을 유지 |
+| `SPECILLUM_POD_WINDOW` | `visible` | `minimized`로 설정하면 포드 창이 작업 표시줄에 최소화된 채 열리고, 그 상태로도 작동 |
+| `SPECILLUM_WINDOW` | `1280x900` | 포드 창 크기 |
 
 ## 보안 모델
 

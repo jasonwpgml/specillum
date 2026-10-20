@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { Browser, Page } from "playwright-core";
+import type { Browser, Frame, Page } from "playwright-core";
 import { z } from "zod";
-import { Pod } from "./pod.js";
+import { Pod, type PodWindow } from "./pod.js";
 import { REF_ATTR, readInPage, snapshotInPage } from "./snapshot.js";
 import { connectStation } from "./station.js";
 
@@ -15,35 +15,77 @@ export async function runServer(): Promise<void> {
   const server = new McpServer({ name: "specillum", version: VERSION });
   let browser: Browser | undefined;
   let pod: Pod | undefined;
+  const label = process.env.SPECILLUM_POD;
+  const windowModes: PodWindow[] = ["visible", "minimized"];
+  const mode = (process.env.SPECILLUM_POD_WINDOW ?? "visible") as PodWindow;
+  if (!windowModes.includes(mode)) throw new Error(`SPECILLUM_POD_WINDOW must be one of ${windowModes.join(", ")}`);
 
   // The pod is created lazily so a pod window only appears once the agent
   // actually uses the browser, and it is labelled after the connecting client.
+  // If the station was closed, the next call starts it again with a new pod.
   const getPod = async (): Promise<Pod> => {
-    if (pod) return pod;
-    browser ??= await connectStation();
+    if (pod && browser?.isConnected()) return pod;
+    browser = await connectStation();
+    browser.on("disconnected", () => {
+      browser = undefined;
+      pod = undefined;
+    });
     const client = server.server.getClientVersion()?.name ?? "agent";
-    const label = process.env.SPECILLUM_POD ?? `${client}-${Math.random().toString(36).slice(2, 6)}`;
-    pod = await Pod.launch(browser, label);
+    pod = await Pod.launch(browser, label ?? `${client}-${Math.random().toString(36).slice(2, 6)}`, mode);
     return pod;
   };
   const page = async (): Promise<Page> => (await getPod()).page();
 
+  // Frames seen by the last snapshot, so refs like f2e5 resolve to frame 2.
+  let snapshotFrames: Frame[] = [];
+
   const locate = async (ref: string) => {
     const p = await page();
-    const loc = p.locator(`[${REF_ATTR}="${ref}"]`);
+    const m = /^f(\d+)e\d+$/.exec(ref);
+    const frame = m ? snapshotFrames[Number(m[1])] : p.mainFrame();
+    if (!frame || frame.isDetached() || frame.page() !== p) {
+      throw new Error(`Ref ${ref} belongs to a frame that is gone. Call snapshot again.`);
+    }
+    const loc = frame.locator(`[${REF_ATTR}="${ref}"]`);
     if ((await loc.count()) === 0) throw new Error(`Ref ${ref} not found. The page changed; call snapshot again.`);
     return { p, loc: loc.first() };
   };
 
-  const snapshot = async (p: Page, maxElements = 150) =>
-    p.evaluate(snapshotInPage, { maxElements, refAttr: REF_ATTR });
+  // Snapshots the main frame plus every visible iframe (same- or cross-origin).
+  const snapshot = async (p: Page, maxElements = 150) => {
+    const main = await p.mainFrame().evaluate(snapshotInPage, { maxElements, refAttr: REF_ATTR, prefix: "e", meta: true });
+    const lines = [...main.lines];
+    let hidden = main.hidden;
+    snapshotFrames = [p.mainFrame()];
+    for (const frame of p.frames().slice(1)) {
+      const budget = maxElements - lines.length;
+      if (budget <= 0) break;
+      const box = await frame.frameElement().then((el) => el.boundingBox()).catch(() => null);
+      if (!box || box.width < 2 || box.height < 2) continue;
+      const index = snapshotFrames.push(frame) - 1;
+      const sub = await frame
+        .evaluate(snapshotInPage, { maxElements: budget, refAttr: REF_ATTR, prefix: `f${index}e`, meta: false })
+        .catch(() => null);
+      if (!sub || sub.lines.length === 0) continue;
+      lines.push(`-- iframe f${index}: ${frame.url().slice(0, 100)}`, ...sub.lines);
+      hidden += sub.hidden;
+    }
+    const more = hidden > 0 ? `\n(${hidden} more elements not shown; raise maxElements or scroll)` : "";
+    return `${main.meta}\nelements:\n${lines.join("\n")}${more}`;
+  };
 
-  // Every action reports where the page ended up; with snapshot=true it also
+  // Every action reports where the active tab ended up, plus anything that
+  // happened on the way (dialogs, new tabs). With snapshot=true it also
   // returns a fresh snapshot so the agent saves a round trip.
-  const after = async (p: Page, note: string, withSnapshot?: boolean) => {
+  const after = async (note: string, withSnapshot?: boolean, settleMs = 300, since?: number) => {
+    const pd = await getPod();
+    await pd.settle(settleMs, since);
+    const p = await pd.page();
     await p.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
-    if (withSnapshot) return text(`${note}\n${await snapshot(p)}`);
-    return text(`${note}\nurl: ${p.url()}\ntitle: ${await p.title().catch(() => "")}`);
+    const events = pd.drainNotes().map((n) => `note: ${n}`);
+    const head = [note, ...events].join("\n");
+    if (withSnapshot) return text(`${head}\n${await snapshot(p)}`);
+    return text(`${head}\nurl: ${p.url()}\ntitle: ${await p.title().catch(() => "")}`);
   };
 
   const tabList = async (pd: Pod) => {
@@ -66,7 +108,21 @@ export async function runServer(): Promise<void> {
     async () => {
       const pd = await getPod();
       await pd.page();
-      return text(`pod: ${pd.label}\ntabs:\n${await tabList(pd)}`);
+      return text(`pod: ${pd.label} (window: ${pd.mode})\ntabs:\n${await tabList(pd)}`);
+    },
+  );
+
+  server.registerTool(
+    "pod_window",
+    {
+      description:
+        "Show this pod's window to the user or minimize it to the taskbar, e.g. when the user asks to watch, or when you need them to log in or solve a CAPTCHA.",
+      inputSchema: { state: z.enum(["show", "minimize"]) },
+    },
+    async ({ state }) => {
+      const pd = await getPod();
+      await pd.setWindowState(state === "show" ? "normal" : "minimized");
+      return text(state === "show" ? "pod window is shown" : "pod window is minimized");
     },
   );
 
@@ -79,8 +135,11 @@ export async function runServer(): Promise<void> {
     async ({ url, snapshot: s }) => {
       const p = await page();
       const target = /^[a-z]+:/i.test(url) ? url : `https://${url}`;
+      const t0 = Date.now();
       await p.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      return after(p, "navigated", s);
+      // Sites keep rendering after DOMContentLoaded and may replace elements,
+      // which would drop the refs a snapshot taken now hands out.
+      return after("navigated", s, 0, t0);
     },
   );
 
@@ -92,9 +151,10 @@ export async function runServer(): Promise<void> {
     },
     async ({ direction, snapshot: s }) => {
       const p = await page();
+      const t0 = Date.now();
       if (direction === "back") await p.goBack({ timeout: 15_000 });
       else await p.goForward({ timeout: 15_000 });
-      return after(p, direction, s);
+      return after(direction, s, 0, t0);
     },
   );
 
@@ -138,7 +198,7 @@ export async function runServer(): Promise<void> {
       const { p, loc } = await locate(ref);
       if (double) await loc.dblclick({ button, timeout: 10_000 });
       else await loc.click({ button, timeout: 10_000 });
-      return after(p, `clicked ${ref}`, s);
+      return after(`clicked ${ref}`, s);
     },
   );
 
@@ -164,7 +224,7 @@ export async function runServer(): Promise<void> {
         await loc.fill(value, { timeout: 10_000 });
       }
       if (submit) await loc.press("Enter");
-      return after(p, `typed into ${ref}`, s);
+      return after(`typed into ${ref}`, s);
     },
   );
 
@@ -177,7 +237,7 @@ export async function runServer(): Promise<void> {
     async ({ key, snapshot: s }) => {
       const p = await page();
       await p.keyboard.press(key);
-      return after(p, `pressed ${key}`, s);
+      return after(`pressed ${key}`, s);
     },
   );
 
@@ -190,7 +250,7 @@ export async function runServer(): Promise<void> {
     async ({ ref, values, snapshot: s }) => {
       const { p, loc } = await locate(ref);
       const chosen = await loc.selectOption(values.map((v) => ({ label: v })), { timeout: 3000 }).catch(() => loc.selectOption(values, { timeout: 10_000 }));
-      return after(p, `selected ${chosen.join(", ")} in ${ref}`, s);
+      return after(`selected ${chosen.join(", ")} in ${ref}`, s);
     },
   );
 
@@ -203,7 +263,7 @@ export async function runServer(): Promise<void> {
     async ({ ref, snapshot: s }) => {
       const { p, loc } = await locate(ref);
       await loc.hover({ timeout: 10_000 });
-      return after(p, `hovered ${ref}`, s);
+      return after(`hovered ${ref}`, s);
     },
   );
 
@@ -222,12 +282,12 @@ export async function runServer(): Promise<void> {
       if (ref) {
         const { p, loc } = await locate(ref);
         await loc.scrollIntoViewIfNeeded({ timeout: 10_000 });
-        return after(p, `scrolled to ${ref}`, s);
+        return after(`scrolled to ${ref}`, s);
       }
       const p = await page();
       const sign = direction === "up" ? -1 : 1;
       await p.evaluate((dy) => window.scrollBy(0, dy * window.innerHeight), sign * (screens ?? 1));
-      return after(p, `scrolled ${direction ?? "down"}`, s);
+      return after(`scrolled ${direction ?? "down"}`, s);
     },
   );
 
@@ -245,7 +305,24 @@ export async function runServer(): Promise<void> {
       const p = await page();
       if (needle) await p.getByText(needle).first().waitFor({ timeout: (seconds ?? 10) * 1000 });
       else await p.waitForTimeout((seconds ?? 1) * 1000);
-      return after(p, needle ? `found "${needle}"` : `waited ${seconds ?? 1}s`, s);
+      return after(needle ? `found "${needle}"` : `waited ${seconds ?? 1}s`, s, 0);
+    },
+  );
+
+  server.registerTool(
+    "dialog",
+    {
+      description:
+        "Decide how to answer the next JavaScript dialog (confirm, prompt, beforeunload) before the action that triggers it. Without this, alerts are accepted and confirms/prompts are dismissed; tool results report every dialog.",
+      inputSchema: {
+        action: z.enum(["accept", "dismiss"]),
+        promptText: z.string().optional().describe("Text to enter when accepting a prompt()."),
+      },
+    },
+    async ({ action, promptText }) => {
+      const pd = await getPod();
+      pd.nextDialog = { accept: action === "accept", promptText };
+      return text(`the next dialog will be ${action === "accept" ? "accepted" : "dismissed"}`);
     },
   );
 
@@ -256,8 +333,8 @@ export async function runServer(): Promise<void> {
       inputSchema: { fullPage: z.boolean().optional() },
     },
     async ({ fullPage }) => {
-      const p = await page();
-      const buf = await p.screenshot({ type: "jpeg", quality: 70, fullPage });
+      const pd = await getPod();
+      const buf = await pd.screenshot(await pd.page(), fullPage);
       return { content: [{ type: "image", data: buf.toString("base64"), mimeType: "image/jpeg" }] as Content[] };
     },
   );

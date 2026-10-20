@@ -97,6 +97,11 @@ function launchChrome(dir: string): void {
       `--user-data-dir=${dir}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // Minimized and hidden pods are background pages; keep their timers and
+      // rendering at full speed so sites behave as in a focused tab.
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
     ],
     { detached: true, stdio: "ignore" },
   );
@@ -105,5 +110,12 @@ function launchChrome(dir: string): void {
 
 export async function connectStation(): Promise<Browser> {
   await ensureStation();
-  return chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  // noDefaults keeps Playwright from rewriting the station's own settings,
+  // such as redirecting every download in the profile to a temp folder.
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { noDefaults: true });
+  // Playwright auto-dismisses dialogs on any page it sees that has no dialog
+  // listener. Every pod's connection sees every page, so without this one
+  // agent would silently close dialogs in the user's tabs and in other pods.
+  browser.contexts()[0]?.on("dialog", () => {});
+  return browser;
 }

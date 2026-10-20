@@ -112,9 +112,10 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | Tool | What it does |
 |---|---|
 | `pod_status` | This agent's pod label and its tabs |
+| `pod_window` | Show this pod's window to the user, or minimize it to the taskbar |
 | `navigate` | Open a URL in the active tab |
 | `history` | Back / forward |
-| `snapshot` | Compact view of the page with element refs (`[e12]`) |
+| `snapshot` | Compact view of the page with element refs (`[e12]`) (iframes included) |
 | `read` | Page text as plain text (main content by default) |
 | `click` | Click by ref |
 | `type` | Fill an input by ref, optionally press Enter |
@@ -124,6 +125,7 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | `scroll` | Scroll by screens, or scroll a ref into view |
 | `wait` | Wait for text or a fixed time |
 | `screenshot` | JPEG of the active tab |
+| `dialog` | Accept or dismiss the next `confirm` / `prompt` dialog (alerts are accepted, confirms dismissed by default) |
 | `tabs` | List, open, switch, or close tabs **of this pod only** |
 | `evaluate` | Run a JavaScript expression in the active tab |
 
@@ -138,6 +140,8 @@ Action tools accept `snapshot: true` to return a fresh snapshot in the same call
 | `SPECILLUM_CHROME` | auto-detected | Browser executable |
 | `SPECILLUM_POD` | `<client>-<random>` | Fixed pod label |
 | `SPECILLUM_KEEP_POD` | unset | Set to `1` to keep the pod window after the agent exits |
+| `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
+| `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
 
 ## Security model
 

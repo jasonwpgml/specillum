@@ -112,9 +112,10 @@ args = ["-y", "specillum"]
 | 工具 | 功能 |
 |---|---|
 | `pod_status` | 当前智能体的舱标识及其标签页 |
+| `pod_window` | 将本舱窗口显示给用户，或最小化到任务栏 |
 | `navigate` | 在当前标签页中打开 URL |
 | `history` | 后退 / 前进 |
-| `snapshot` | 页面的精简视图，附带元素引用（`[e12]`） |
+| `snapshot` | 页面的精简视图，附带元素引用（`[e12]`） （包含 iframe） |
 | `read` | 以纯文本形式获取页面文字（默认只取正文） |
 | `click` | 按引用点击元素 |
 | `type` | 按引用填写输入框，可选择随后按下 Enter |
@@ -124,6 +125,7 @@ args = ["-y", "specillum"]
 | `scroll` | 按屏滚动，或将某个引用对应的元素滚动到可视区域 |
 | `wait` | 等待指定文本出现，或等待固定时长 |
 | `screenshot` | 当前标签页的 JPEG 截图 |
+| `dialog` | 接受或取消下一个 `confirm` / `prompt` 对话框（默认接受 alert、取消 confirm） |
 | `tabs` | 列出、打开、切换或关闭标签页（**仅限本舱**） |
 | `evaluate` | 在当前标签页中执行一段 JavaScript 表达式 |
 
@@ -138,6 +140,8 @@ args = ["-y", "specillum"]
 | `SPECILLUM_CHROME` | 自动检测 | 浏览器可执行文件路径 |
 | `SPECILLUM_POD` | `<client>-<random>` | 固定的舱标识 |
 | `SPECILLUM_KEEP_POD` | 未设置 | 设为 `1` 时，智能体退出后保留舱窗口 |
+| `SPECILLUM_POD_WINDOW` | `visible` | 设为 `minimized` 时，舱窗口以最小化状态在任务栏中打开，并照常工作 |
+| `SPECILLUM_WINDOW` | `1280x900` | 舱窗口大小 |
 
 ## 安全模型
 

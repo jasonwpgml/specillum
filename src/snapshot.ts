@@ -7,8 +7,11 @@
 
 export const REF_ATTR = "data-specillum-ref";
 
-export function snapshotInPage(args: { maxElements: number; refAttr: string }): string {
-  const { maxElements, refAttr } = args;
+export type FrameSnapshot = { meta: string; lines: string[]; hidden: number };
+
+// prefix makes refs unique across frames: "e" in the main frame, "f2e" in frame 2.
+export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean }): FrameSnapshot {
+  const { maxElements, refAttr, prefix } = args;
   const SELECTOR = [
     "a[href]", "button", "input:not([type=hidden])", "select", "textarea", "summary",
     "[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]",
@@ -89,7 +92,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string }): 
   const lines: string[] = [];
   let n = 0;
   for (const el of picked) {
-    const ref = `e${++n}`;
+    const ref = `${prefix}${++n}`;
     el.setAttribute(refAttr, ref);
     const role = roleOf(el);
     let line = `[${ref}] ${role} "${nameOf(el)}"`;
@@ -110,24 +113,24 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string }): 
     lines.push(line);
   }
 
+  const hidden = candidates.length - picked.length;
+  if (!args.meta) return { meta: "", lines, hidden };
+
   const headings = [...document.querySelectorAll("h1, h2, h3")]
     .filter(visible)
     .slice(0, 15)
     .map((h) => `${h.tagName.toLowerCase()}: ${clean(h.textContent, 100)}`);
-
   const scrollable = document.documentElement.scrollHeight - innerHeight;
   const scrolled = scrollable > 0 ? Math.round((scrollY / scrollable) * 100) : 100;
-  const more = candidates.length > picked.length ? `\n(${candidates.length - picked.length} more elements not shown)` : "";
-
-  return [
+  const meta = [
     `title: ${document.title}`,
-    `url: ${location.href}`,
+    `url: ${location.href.length > 200 ? location.href.slice(0, 199) + "…" : location.href}`,
     `scroll: ${scrolled}%`,
     headings.length ? `headings:\n${headings.map((h) => "  " + h).join("\n")}` : "",
-    `elements:\n${lines.join("\n")}${more}`,
   ]
     .filter(Boolean)
     .join("\n");
+  return { meta, lines, hidden };
 }
 
 export function readInPage(args: { selector?: string; maxChars: number }): string {
