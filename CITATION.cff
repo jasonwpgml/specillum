@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Specillum, please credit it as below and link to the repository."
+title: "Specillum: isolated browser pods for AI agents in your logged-in Chrome"
+type: software
+authors:
+  - given-names: Jason
+    alias: jasonwpgml
+repository-code: "https://github.com/jasonwpgml/specillum"
+license: Apache-2.0
+version: 0.1.0
+date-released: 2026-10-21
+keywords:
+  - mcp
+  - model context protocol
+  - browser automation
+  - ai agents
+  - claude code
+  - chrome

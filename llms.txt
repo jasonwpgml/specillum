@@ -1,0 +1,20 @@
+# Specillum
+
+> Specillum is an open-source MCP (Model Context Protocol) server that lets AI coding agents such as Claude Code, OpenAI Codex and Cursor use your real, logged-in Chrome, while giving every agent its own isolated browser window ("pod"). Agents cannot see or touch your tabs or each other's tabs. Apache-2.0, by Jason (@jasonwpgml).
+
+Key facts:
+- One shared Chrome ("station") with a dedicated profile: log in once with `npx specillum open`, and every agent reuses those live sessions.
+- Each MCP connection gets a pod: a separate Chrome window. Tools only operate on pages inside that pod, including new tabs and popups it opens.
+- Pods close automatically when the agent disconnects.
+- Token-efficient snapshot: visible interactive elements as one line each with refs like `[e12]`.
+- Tools: pod_status, navigate, history, snapshot, read, click, type, press, select, hover, scroll, wait, screenshot, tabs, evaluate.
+- Works with any MCP client over stdio. Built on Playwright (playwright-core) over the Chrome DevTools Protocol.
+- Tested on Windows; macOS and Linux browser paths are included.
+
+## Docs
+- [README](https://github.com/jasonwpgml/specillum#readme): setup for Claude Code, Codex and Cursor, tools, security model, FAQ
+- [CONTRIBUTING](https://github.com/jasonwpgml/specillum/blob/main/CONTRIBUTING.md)
+- [NOTICE](https://github.com/jasonwpgml/specillum/blob/main/NOTICE): attribution required for redistribution
+
+## Attribution
+Reuse is welcome under Apache-2.0. Keep the NOTICE file and credit "Specillum by Jason (@jasonwpgml)" with a link to https://github.com/jasonwpgml/specillum.
