@@ -2,25 +2,10 @@
 // hands out pages it opened itself (or popups those pages opened), so an
 // agent cannot see or touch the user's tabs or another agent's pod.
 import type { Browser, BrowserContext, CDPSession, Page, Request } from "playwright-core";
-import { isJsonType } from "./data.js";
+import { guardPage } from "./allowlist.js";
+import { ConsoleLog, NetworkLog, watchDownloads } from "./records.js";
 
 const CONTENT_REQUESTS = new Set(["document", "script", "xhr", "fetch"]);
-
-// A response one of the pod's pages received from a fetch or XHR. Only JSON
-// bodies are kept, parsed, and only up to MAX_BODY characters.
-export type Captured = {
-  id: number;
-  page: Page;
-  method: string;
-  url: string;
-  status: number;
-  contentType: string;
-  json?: unknown;
-  chars?: number;
-  skipped?: string;
-};
-const MAX_CAPTURED = 150;
-const MAX_BODY = 2_000_000;
 
 async function targetIdOf(context: BrowserContext, page: Page): Promise<string> {
   const session = await context.newCDPSession(page);
@@ -103,31 +88,8 @@ export class Pod {
     await this.cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: this.windowState } });
   }
 
-  readonly captured: Captured[] = [];
-  private nextCaptureId = 1;
-
-  private async capture(page: Page, req: Request): Promise<void> {
-    const res = await req.response().catch(() => null);
-    if (!res) return;
-    const contentType = (await res.headerValue("content-type").catch(() => null)) ?? "";
-    const entry: Captured = { id: this.nextCaptureId++, page, method: req.method(), url: req.url(), status: res.status(), contentType };
-    if (!isJsonType(contentType)) entry.skipped = "not JSON";
-    else {
-      const body = await res.text().catch(() => undefined);
-      if (body === undefined) entry.skipped = "body unavailable";
-      else if (body.length > MAX_BODY) entry.skipped = `too large (${body.length} chars)`;
-      else {
-        try {
-          entry.json = JSON.parse(body);
-          entry.chars = body.length;
-        } catch {
-          entry.skipped = "invalid JSON";
-        }
-      }
-    }
-    this.captured.push(entry);
-    if (this.captured.length > MAX_CAPTURED) this.captured.shift();
-  }
+  readonly network = new NetworkLog();
+  readonly console = new ConsoleLog();
 
   // Requests that can still change the page, per pod page.
   private readonly inflight = new Map<Page, Map<Request, number>>();
@@ -147,6 +109,9 @@ export class Pod {
       this.context.newCDPSession(page).then(async (s) => {
         await s.send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
         if (this.windowState === "minimized") await this.applyWindowState(s).catch(() => {});
+        const note = (message: string) => void this.notes.push(message);
+        watchDownloads(s, note);
+        await guardPage(page, note).catch(() => {});
         return s;
       }).catch(() => undefined),
     );
@@ -158,9 +123,11 @@ export class Pod {
     });
     page.on("requestfinished", (r) => {
       done(r);
-      if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.capture(page, r);
+      if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.network.add(page, r);
     });
     page.on("requestfailed", done);
+    page.on("console", (m) => this.console.add(page, m.type(), m.text()));
+    page.on("pageerror", (e) => this.console.add(page, "error", `uncaught ${e.name}: ${e.message}`));
     page.on("popup", (popup) => {
       if (this.pages.includes(popup)) return;
       this.adopt(popup);
@@ -217,11 +184,28 @@ export class Pod {
       const busy = () => [...inflight.values()].some((t) => t >= since);
       const deadline = Date.now() + 4000;
       let quietSince = busy() ? 0 : Date.now();
-      while (Date.now() < deadline && (!quietSince || Date.now() - quietSince < 250)) {
-        await new Promise((r) => setTimeout(r, 50));
+      while (Date.now() < deadline && (!quietSince || Date.now() - quietSince < 100)) {
+        await new Promise((r) => setTimeout(r, 25));
         if (busy()) quietSince = 0;
         else quietSince ||= Date.now();
       }
+      // A response is rendered after it arrives. Animated pages never stop
+      // changing, so this is capped too. A navigation ends it by destroying the page.
+      await this.active?.evaluate(() => new Promise<void>((done) => {
+        let timer = setTimeout(finish, 100);
+        const cap = setTimeout(finish, 1000);
+        const observer = new MutationObserver(() => {
+          clearTimeout(timer);
+          timer = setTimeout(finish, 100);
+        });
+        function finish() {
+          observer.disconnect();
+          clearTimeout(timer);
+          clearTimeout(cap);
+          done();
+        }
+        observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+      })).catch(() => {});
     }
   }
 

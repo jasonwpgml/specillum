@@ -8,6 +8,10 @@ import { chromium, type Browser } from "playwright-core";
 
 export const port = Number(process.env.SPECILLUM_PORT ?? 9333);
 
+// No windows at all. Nobody can log in or take over, so this suits sites already
+// logged in, and tests.
+export const headless = () => process.env.SPECILLUM_HEADLESS === "1";
+
 export function profileDir(): string {
   if (process.env.SPECILLUM_PROFILE) return process.env.SPECILLUM_PROFILE;
   switch (platform()) {
@@ -102,6 +106,7 @@ function launchChrome(dir: string): void {
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
+      ...(headless() ? ["--headless=new"] : []),
     ],
     { detached: true, stdio: "ignore" },
   );

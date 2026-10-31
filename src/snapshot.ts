@@ -1,17 +1,24 @@
 // Compact, token-friendly page snapshot. Runs inside the page: it tags every
 // visible interactive element with a short ref (e1, e2, ...) that the action
-// tools resolve later, and returns one line per element.
+// tools resolve later, and returns one line per element. An element keeps its
+// ref for as long as it stays in the document, so two snapshots can be compared.
 //
 // Everything below must stay self-contained because Playwright serializes the
 // function into the page.
 
 export const REF_ATTR = "data-specillum-ref";
 
-export type FrameSnapshot = { meta: string; lines: string[]; hidden: number };
+export type SnapshotItem = { ref: string; role: string; name: string };
+export type FrameSnapshot = { meta: string; lines: string[]; items: SnapshotItem[]; hidden: number; doc: string; lastRef: number };
 
 // prefix makes refs unique across frames: "e" in the main frame, "f2e" in frame 2.
-export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean }): FrameSnapshot {
+// firstRef carries numbering over from the frame's previous document, so a ref
+// from before a navigation can never name an element after it.
+export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean; firstRef: number }): FrameSnapshot {
   const { maxElements, refAttr, prefix } = args;
+  // doc tells a reload apart.
+  const w = window as unknown as { __specillum?: { next: number; doc: string } };
+  const state = (w.__specillum ??= { next: args.firstRef, doc: Math.random().toString(36).slice(2) });
   const SELECTOR = [
     "a[href]", "button", "input:not([type=hidden])", "select", "textarea", "summary",
     "[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]",
@@ -81,7 +88,6 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
       if (el.shadowRoot) walk(el.shadowRoot);
     });
   };
-  document.querySelectorAll(`[${refAttr}]`).forEach((el) => el.removeAttribute(refAttr));
   walk(document);
 
   const candidates = found.filter(visible);
@@ -90,12 +96,18 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   const picked = ordered.slice(0, maxElements);
 
   const lines: string[] = [];
-  let n = 0;
+  const items: SnapshotItem[] = [];
+  // A page that clones a tagged element copies its ref too; only one may keep it.
+  const taken = new Set<string>();
   for (const el of picked) {
-    const ref = `${prefix}${++n}`;
+    const kept = el.getAttribute(refAttr);
+    const ref = kept?.startsWith(prefix) && !taken.has(kept) ? kept : `${prefix}${++state.next}`;
+    taken.add(ref);
     el.setAttribute(refAttr, ref);
     const role = roleOf(el);
-    let line = `[${ref}] ${role} "${nameOf(el)}"`;
+    const name = nameOf(el);
+    items.push({ ref, role, name });
+    let line = `[${ref}] ${role} "${name}"`;
     if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
       line += el.checked ? " checked" : "";
     } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -114,7 +126,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   }
 
   const hidden = candidates.length - picked.length;
-  if (!args.meta) return { meta: "", lines, hidden };
+  if (!args.meta) return { meta: "", lines, items, hidden, doc: state.doc, lastRef: state.next };
 
   const headings = [...document.querySelectorAll("h1, h2, h3")]
     .filter(visible)
@@ -130,7 +142,51 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   ]
     .filter(Boolean)
     .join("\n");
-  return { meta, lines, hidden };
+  return { meta, lines, items, hidden, doc: state.doc, lastRef: state.next };
+}
+
+// Names what sits on top of an element's center, or null if nothing does.
+export function blockerInPage(el: Element): string | null {
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  let top = document.elementFromPoint(x, y);
+  while (top?.shadowRoot) {
+    const inner = top.shadowRoot.elementFromPoint(x, y);
+    if (!inner || inner === top) break;
+    top = inner;
+  }
+  if (!top || top === el || el.contains(top)) return null;
+  const id = top.id ? `#${top.id}` : "";
+  const cls = typeof top.className === "string" && top.className.trim() ? `.${top.className.trim().split(/\s+/)[0]}` : "";
+  const words = ((top as HTMLElement).innerText ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return `<${top.tagName.toLowerCase()}${id}${cls}>${words ? ` "${words}"` : ""}`;
+}
+
+// Draws each ref over its element for a screenshot, or takes the labels away.
+// Page geometry is used so the labels also line up in a full-page capture.
+export function annotateInPage(args: { refAttr: string; on: boolean }): void {
+  const ID = "__specillum-labels";
+  document.getElementById(ID)?.remove();
+  if (!args.on) return;
+  const layer = document.createElement("div");
+  layer.id = ID;
+  layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none";
+  const walk = (root: Document | ShadowRoot) => {
+    root.querySelectorAll(`[${args.refAttr}]`).forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      const label = document.createElement("div");
+      label.textContent = el.getAttribute(args.refAttr);
+      label.style.cssText = `position:absolute;left:${r.left + scrollX}px;top:${r.top + scrollY}px;font:bold 11px/13px monospace;padding:0 2px;color:#fff;background:#d00;white-space:nowrap`;
+      layer.append(label);
+    });
+    root.querySelectorAll("*").forEach((el) => {
+      if (el.shadowRoot) walk(el.shadowRoot);
+    });
+  };
+  walk(document);
+  document.documentElement.append(layer);
 }
 
 export function readInPage(args: { selector?: string; maxChars: number }): string {

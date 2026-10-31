@@ -1,45 +1,13 @@
 // Live check against real websites (needs internet). Every case runs even if
 // an earlier one fails, so one run shows everything that is broken.
 // Uses a throwaway profile and port, never your real station.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { check, closeStation, connectAgent, expect, finish, testStation } from "./helpers.mjs";
 
 const port = "9555";
-const profile = mkdtempSync(join(tmpdir(), "specillum-live-"));
-const env = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile };
+const station = testStation("live", port);
 const html = (title, body) => "data:text/html," + encodeURIComponent(`<title>${title}</title>${body}`);
-
-async function agent(name) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: ["dist/cli.js"], env }));
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    const out = res.content.map((c) => c.text ?? `[${c.type}]`).join("\n");
-    if (res.isError) throw new Error(`${tool}: ${out}`);
-    return out;
-  };
-  return { client, call };
-}
-
-const results = [];
-async function check(name, fn) {
-  const t0 = Date.now();
-  try {
-    const detail = await fn();
-    results.push({ name, ok: true, ms: Date.now() - t0, detail });
-    console.log(`PASS ${name} (${Date.now() - t0}ms)${detail ? " — " + detail : ""}`);
-  } catch (err) {
-    results.push({ name, ok: false, ms: Date.now() - t0, detail: String(err.message ?? err) });
-    console.log(`FAIL ${name} (${Date.now() - t0}ms) — ${String(err.message ?? err).slice(0, 600)}`);
-  }
-}
-const expect = (cond, msg) => {
-  if (!cond) throw new Error(msg);
-};
+const agent = (name) => connectAgent(station, name);
 const ref = (snap, re) => snap.match(re)?.[1];
 
 const a = await agent("alpha");
@@ -148,13 +116,6 @@ try {
 } finally {
   await a.client.close().catch(() => {});
   await b.client.close().catch(() => {});
-  try {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    await (await browser.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
-  await new Promise((r) => setTimeout(r, 1500));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} passed`);
-  process.exitCode = failed ? 1 : 0;
+  await closeStation(station);
+  finish();
 }
