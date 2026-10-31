@@ -1,17 +1,39 @@
+import { realpathSync, statSync } from "node:fs";
+import { basename, delimiter, isAbsolute, relative, resolve, sep } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { Browser, Frame, Page } from "playwright-core";
+import type { Browser, Frame, Locator, Page } from "playwright-core";
 import { z } from "zod";
-import { Pod, type PodWindow } from "./pod.js";
-import { REF_ATTR, readInPage, snapshotInPage, type SnapshotItem } from "./snapshot.js";
+import { Pod, assertAllowed, type PodWindow } from "./pod.js";
+import { REF_ATTR, annotateInPage, blockerInPage, readInPage, snapshotInPage, type SnapshotItem } from "./snapshot.js";
 import { connectStation } from "./station.js";
-import { UNTRUSTED, embeddedDataInPage, outline, pick, redactUrl, redactValue, render } from "./data.js";
+import { UNTRUSTED, embeddedDataInPage, outline, pick, redactString, redactUrl, redactValue, render } from "./data.js";
 import { deleteRecipe, fillStep, listRecipes, loadRecipe, onSite, saveRecipe, stepSchema, validateRecipe, type Recipe, type Step } from "./recipes.js";
 
 const VERSION = "0.1.0";
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 const text = (t: string) => ({ content: [{ type: "text", text: t }] as Content[] });
+
+// A web page could ask for any file the agent can name, so uploads only come
+// from the directory the agent runs in and any the user added. Links are
+// resolved first, so one cannot point out of those directories.
+function uploadFile(path: string): string {
+  const roots = [process.cwd(), ...(process.env.SPECILLUM_UPLOAD_DIRS?.split(delimiter).filter(Boolean) ?? [])];
+  let real: string;
+  try {
+    real = realpathSync(resolve(path));
+  } catch {
+    throw new Error(`No such file: ${path}`);
+  }
+  const inside = roots.some((root) => {
+    const rel = relative(realpathSync(root), real);
+    return rel && !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel);
+  });
+  if (!inside) throw new Error(`${path} is outside the directories uploads may come from: ${roots.join(", ")}. The user can add one with SPECILLUM_UPLOAD_DIRS.`);
+  if (!statSync(real).isFile()) throw new Error(`Not a file: ${path}`);
+  return real;
+}
 
 export async function runServer(): Promise<void> {
   const server = new McpServer({ name: "specillum", version: VERSION });
@@ -38,8 +60,9 @@ export async function runServer(): Promise<void> {
   };
   const page = async (): Promise<Page> => (await getPod()).page();
 
-  // Frames seen by the last snapshot, so refs like f2e5 resolve to frame 2.
-  let snapshotFrames: Frame[] = [];
+  // Every frame a snapshot has numbered, so refs like f2e5 resolve to frame 2. A
+  // frame keeps its number, which keeps the refs inside it stable. 0 is unused.
+  const snapshotFrames: (Frame | undefined)[] = [undefined];
   let snapshotItems: SnapshotItem[] = [];
 
   const locate = async (ref: string) => {
@@ -55,18 +78,18 @@ export async function runServer(): Promise<void> {
   };
 
   // Snapshots the main frame plus every visible iframe (same- or cross-origin).
-  const snapshot = async (p: Page, maxElements = 150) => {
+  const readPage = async (p: Page, maxElements: number) => {
     const main = await p.mainFrame().evaluate(snapshotInPage, { maxElements, refAttr: REF_ATTR, prefix: "e", meta: true });
     const lines = [...main.lines];
     let hidden = main.hidden;
-    snapshotFrames = [p.mainFrame()];
     snapshotItems = [...main.items];
     for (const frame of p.frames().slice(1)) {
       const budget = maxElements - lines.length;
       if (budget <= 0) break;
       const box = await frame.frameElement().then((el) => el.boundingBox()).catch(() => null);
       if (!box || box.width < 2 || box.height < 2) continue;
-      const index = snapshotFrames.push(frame) - 1;
+      const known = snapshotFrames.indexOf(frame);
+      const index = known > 0 ? known : snapshotFrames.push(frame) - 1;
       const sub = await frame
         .evaluate(snapshotInPage, { maxElements: budget, refAttr: REF_ATTR, prefix: `f${index}e`, meta: false })
         .catch(() => null);
@@ -75,21 +98,59 @@ export async function runServer(): Promise<void> {
       snapshotItems.push(...sub.items);
       hidden += sub.hidden;
     }
-    const more = hidden > 0 ? `\n(${hidden} more elements not shown; raise maxElements or scroll)` : "";
-    return `${main.meta}\nelements:\n${lines.join("\n")}${more}`;
+    return { meta: main.meta, doc: main.doc, lines, hidden };
+  };
+
+  const fullView = (s: Awaited<ReturnType<typeof readPage>>, lines = s.lines) => {
+    const more = s.hidden > 0 ? `\n(${s.hidden} more elements not shown; raise maxElements or scroll)` : "";
+    return `${UNTRUSTED}\n${s.meta}\nelements:\n${lines.join("\n")}${more}`;
+  };
+
+  const snapshot = async (p: Page, maxElements = 150) => fullView(await readPage(p, maxElements));
+
+  // What the agent last saw of each tab, to answer "what changed?". Snapshots a
+  // recipe takes for itself do not count, since the agent never saw them.
+  const seen = new WeakMap<Page, { doc: string; maxElements: number; meta: string; lines: Map<string, string> }>();
+  const REF_LINE = /^\[(\S+?)\]/;
+
+  const view = async (p: Page, opts: { maxElements?: number; match?: string; changes?: boolean } = {}) => {
+    if (opts.match) {
+      const s = await readPage(p, opts.maxElements ?? 1000);
+      const needle = opts.match.toLowerCase();
+      const hits = s.lines.filter((l) => REF_LINE.test(l) && l.toLowerCase().includes(needle));
+      return `${fullView(s, hits)}\n(${hits.length} elements match "${opts.match}")`;
+    }
+    const maxElements = opts.maxElements ?? 150;
+    const s = await readPage(p, maxElements);
+    const lines = new Map(s.lines.flatMap((l): [string, string][] => {
+      const ref = REF_LINE.exec(l)?.[1];
+      return ref ? [[ref, l]] : [];
+    }));
+    const before = seen.get(p);
+    seen.set(p, { doc: s.doc, maxElements, meta: s.meta, lines });
+    const full = fullView(s);
+    if (!opts.changes || !before || before.doc !== s.doc || before.maxElements !== maxElements) return full;
+    const diff = [
+      ...[...lines].filter(([ref]) => !before.lines.has(ref)).map(([, l]) => `+ ${l}`),
+      ...[...lines].filter(([ref, l]) => before.lines.has(ref) && before.lines.get(ref) !== l).map(([, l]) => `~ ${l}`),
+      ...[...before.lines].filter(([ref]) => !lines.has(ref)).map(([, l]) => `- ${l}`),
+    ];
+    if (!diff.length && before.meta === s.meta) return "unchanged since the last snapshot";
+    const delta = `${UNTRUSTED}\n${s.meta}\nchanges since the last snapshot (+ new, ~ changed, - gone or past the element limit):\n${diff.join("\n") || "none in the elements"}`;
+    return delta.length < full.length ? delta : full;
   };
 
   // Every action reports where the active tab ended up, plus anything that
   // happened on the way (dialogs, new tabs). With snapshot=true it also
   // returns a fresh snapshot so the agent saves a round trip.
-  const after = async (note: string, withSnapshot?: boolean, settleMs = 300, since?: number) => {
+  const after = async (note: string, withSnapshot?: boolean | "changes", settleMs = 300, since?: number) => {
     const pd = await getPod();
     await pd.settle(settleMs, since);
     const p = await pd.page();
     await p.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
     const events = pd.drainNotes().map((n) => `note: ${n}`);
     const head = [note, ...events].join("\n");
-    if (withSnapshot) return text(`${head}\n${await snapshot(p)}`);
+    if (withSnapshot) return text(`${head}\n${await view(p, { changes: withSnapshot === "changes" })}`);
     return text(`${head}\nurl: ${p.url()}\ntitle: ${await p.title().catch(() => "")}`);
   };
 
@@ -101,7 +162,21 @@ export async function runServer(): Promise<void> {
     return lines.join("\n");
   };
 
-  const snapshotFlag = z.boolean().optional().describe("Return a fresh snapshot after the action.");
+  const snapshotFlag = z.union([z.boolean(), z.literal("changes")]).optional().describe('Return a fresh snapshot after the action, or with "changes" only what changed since the last one.');
+
+  // Waiting out the full timeout behind a cookie banner tells the agent nothing,
+  // so a click that cannot land soon says what is in the way. The trial never
+  // clicks, so nothing is pressed twice.
+  const clickOn = async (loc: Locator, what: string, options: { button?: "left" | "right" | "middle"; double?: boolean } = {}) => {
+    const { double, button } = options;
+    await loc.click({ trial: true, button, timeout: 4000 }).catch(async () => {
+      await loc.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+      const blocker = await loc.evaluate(blockerInPage).catch(() => null);
+      if (blocker) throw new Error(`Cannot click ${what}: it is covered by ${blocker}. Deal with that first, then click again.`);
+    });
+    if (double) await loc.dblclick({ button, timeout: 10_000 });
+    else await loc.click({ button, timeout: 10_000 });
+  };
 
   server.registerTool(
     "pod_status",
@@ -140,6 +215,7 @@ export async function runServer(): Promise<void> {
     async ({ url, snapshot: s }) => {
       const p = await page();
       const target = /^[a-z]+:/i.test(url) ? url : `https://${url}`;
+      assertAllowed(target);
       const t0 = Date.now();
       await p.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
       // Sites keep rendering after DOMContentLoaded and may replace elements,
@@ -167,10 +243,17 @@ export async function runServer(): Promise<void> {
     "snapshot",
     {
       description:
-        "Compact text view of the active tab: title, URL, headings, and visible interactive elements tagged with refs like [e12]. Use the refs with click, type, select and hover. Refs expire when you take a new snapshot.",
-      inputSchema: { maxElements: z.number().int().min(10).max(1000).optional().describe("Default 150.") },
+        "Compact text view of the active tab: title, URL, headings, and visible interactive elements tagged with refs like [e12]. Use the refs with click, type, select and hover. An element keeps its ref until it leaves the page or the page reloads.",
+      inputSchema: {
+        maxElements: z.number().int().min(10).max(1000).optional().describe("Default 150."),
+        match: z.string().optional().describe("Only elements whose line contains this text, searching up to 1000 elements. Finds one control on a long page cheaply."),
+        changes: z.boolean().optional().describe("Only what changed since your last snapshot of this tab. Falls back to a full snapshot after a navigation. Not with match."),
+      },
     },
-    async ({ maxElements }) => text(await snapshot(await page(), maxElements)),
+    async ({ maxElements, match, changes }) => {
+      if (match && changes) throw new Error("Use match or changes, not both.");
+      return text(await view(await page(), { maxElements, match, changes }));
+    },
   );
 
   server.registerTool(
@@ -184,14 +267,14 @@ export async function runServer(): Promise<void> {
     },
     async ({ selector, maxChars }) => {
       const p = await page();
-      return text(await p.evaluate(readInPage, { selector, maxChars: maxChars ?? 8000 }));
+      return text(`${UNTRUSTED}\n${await p.evaluate(readInPage, { selector, maxChars: maxChars ?? 8000 })}`);
     },
   );
 
   server.registerTool(
     "click",
     {
-      description: "Click an element by its snapshot ref.",
+      description: "Click an element by its snapshot ref. If something covers it, the error names what, such as a cookie banner.",
       inputSchema: {
         ref: z.string().describe("Ref from the latest snapshot, e.g. e12"),
         double: z.boolean().optional(),
@@ -200,9 +283,8 @@ export async function runServer(): Promise<void> {
       },
     },
     async ({ ref, double, button, snapshot: s }) => {
-      const { p, loc } = await locate(ref);
-      if (double) await loc.dblclick({ button, timeout: 10_000 });
-      else await loc.click({ button, timeout: 10_000 });
+      const { loc } = await locate(ref);
+      await clickOn(loc, ref, { double, button });
       return after(`clicked ${ref}`, s);
     },
   );
@@ -273,6 +355,59 @@ export async function runServer(): Promise<void> {
   );
 
   server.registerTool(
+    "drag",
+    {
+      description: "Drag one element onto another by ref, e.g. a card between columns.",
+      inputSchema: { from: z.string(), to: z.string(), snapshot: snapshotFlag },
+    },
+    async ({ from, to, snapshot: s }) => {
+      const source = await locate(from);
+      const target = await locate(to);
+      await source.loc.dragTo(target.loc, { timeout: 10_000 });
+      return after(`dragged ${from} onto ${to}`, s);
+    },
+  );
+
+  server.registerTool(
+    "upload",
+    {
+      description:
+        "Attach local files to a file input. Give the ref of the input or of the button that opens the file picker; without a ref, the page's only file input is used, even a hidden one. Files must be inside the directory the agent runs in or one the user added.",
+      inputSchema: {
+        paths: z.array(z.string()).min(1).describe("File paths."),
+        ref: z.string().optional(),
+        snapshot: snapshotFlag,
+      },
+    },
+    async ({ paths, ref, snapshot: s }) => {
+      const files = paths.map(uploadFile);
+      const names = files.map((f) => basename(f)).join(", ");
+      if (ref) {
+        const { p, loc } = await locate(ref);
+        const isInput = await loc.evaluate((el) => el instanceof HTMLInputElement && el.type === "file");
+        if (isInput) await loc.setInputFiles(files, { timeout: 10_000 });
+        else {
+          const chooser = p.waitForEvent("filechooser", { timeout: 5000 });
+          await clickOn(loc, ref);
+          const opened = await chooser.catch(() => {
+            throw new Error(`Clicking ${ref} did not open a file picker.`);
+          });
+          await opened.setFiles(files, { timeout: 10_000 });
+        }
+        return after(`uploaded ${names} through ${ref}`, s);
+      }
+      const inputs: Locator[] = [];
+      for (const frame of (await page()).frames()) {
+        const found = frame.locator("input[type=file]");
+        for (let i = 0; i < (await found.count().catch(() => 0)); i++) inputs.push(found.nth(i));
+      }
+      if (inputs.length !== 1) throw new Error(`This page has ${inputs.length} file inputs. Give the ref of the input or of the button that opens the file picker.`);
+      await inputs[0]!.setInputFiles(files, { timeout: 10_000 });
+      return after(`uploaded ${names}`, s);
+    },
+  );
+
+  server.registerTool(
     "scroll",
     {
       description: "Scroll the page by screens, or scroll an element into view by ref.",
@@ -299,18 +434,25 @@ export async function runServer(): Promise<void> {
   server.registerTool(
     "wait",
     {
-      description: "Wait for text to appear on the page, or for a fixed time.",
+      description:
+        "Wait for text to appear or go away, for the URL to change, or for a fixed time. After asking the user to log in through pod_window, wait for the URL they will land on.",
       inputSchema: {
         text: z.string().optional(),
-        seconds: z.number().min(0).max(60).optional().describe("Fixed wait, or the timeout when text is given (default 10)."),
+        gone: z.string().optional().describe("Wait until this text is no longer visible, e.g. a loading message."),
+        url: z.string().optional().describe("Wait until the tab's URL contains this."),
+        seconds: z.number().min(0).max(300).optional().describe("Fixed wait, or the timeout when waiting for something (default 10)."),
         snapshot: snapshotFlag,
       },
     },
-    async ({ text: needle, seconds, snapshot: s }) => {
+    async ({ text: needle, gone, url, seconds, snapshot: s }) => {
       const p = await page();
-      if (needle) await p.getByText(needle).first().waitFor({ timeout: (seconds ?? 10) * 1000 });
-      else await p.waitForTimeout((seconds ?? 1) * 1000);
-      return after(needle ? `found "${needle}"` : `waited ${seconds ?? 1}s`, s, 0);
+      const timeout = (seconds ?? 10) * 1000;
+      if (needle) await p.getByText(needle).first().waitFor({ timeout });
+      if (gone) await p.getByText(gone).first().waitFor({ state: "hidden", timeout });
+      if (url) await p.waitForURL((u) => u.href.includes(url), { timeout, waitUntil: "commit" });
+      const waited = [needle && `found "${needle}"`, gone && `"${gone}" is gone`, url && `url contains "${url}"`].filter(Boolean).join(", ");
+      if (!waited) await p.waitForTimeout((seconds ?? 1) * 1000);
+      return after(waited || `waited ${seconds ?? 1}s`, s, 0);
     },
   );
 
@@ -335,12 +477,25 @@ export async function runServer(): Promise<void> {
     "screenshot",
     {
       description: "Take a JPEG screenshot of the active tab. Prefer snapshot for reading; use this for visual checks.",
-      inputSchema: { fullPage: z.boolean().optional() },
+      inputSchema: {
+        fullPage: z.boolean().optional(),
+        annotate: z.boolean().optional().describe("Label each element with its ref, so what you see can be clicked by ref."),
+      },
     },
-    async ({ fullPage }) => {
+    async ({ fullPage, annotate }) => {
       const pd = await getPod();
-      const buf = await pd.screenshot(await pd.page(), fullPage);
-      return { content: [{ type: "image", data: buf.toString("base64"), mimeType: "image/jpeg" }] as Content[] };
+      const p = await pd.page();
+      const label = (on: boolean) => Promise.all(p.frames().map((f) => f.evaluate(annotateInPage, { refAttr: REF_ATTR, on }).catch(() => {})));
+      if (annotate) {
+        await snapshot(p, 1000);
+        await label(true);
+      }
+      try {
+        const buf = await pd.screenshot(p, fullPage);
+        return { content: [{ type: "image", data: buf.toString("base64"), mimeType: "image/jpeg" }] as Content[] };
+      } finally {
+        if (annotate) await label(false);
+      }
     },
   );
 
@@ -356,7 +511,11 @@ export async function runServer(): Promise<void> {
     },
     async ({ action, index, url }) => {
       const pd = await getPod();
-      if (action === "new") await pd.newTab(url && (/^[a-z]+:/i.test(url) ? url : `https://${url}`));
+      if (action === "new") {
+        const target = url && (/^[a-z]+:/i.test(url) ? url : `https://${url}`);
+        if (target) assertAllowed(target);
+        await pd.newTab(target);
+      }
       if (action === "select") {
         const p = pd.select(index ?? 0);
         await p.bringToFront();
@@ -458,6 +617,33 @@ export async function runServer(): Promise<void> {
   );
 
   server.registerTool(
+    "console",
+    {
+      description: "Read what this pod's tabs logged to the browser console, plus uncaught errors, newest last. Use it when a page misbehaves.",
+      inputSchema: {
+        errors: z.boolean().optional().describe("Only errors."),
+        match: z.string().optional().describe("Only messages containing this text."),
+        tab: z.number().int().min(0).optional().describe("Only this tab of the pod."),
+        limit: z.number().int().min(1).max(200).optional().describe("Default 30."),
+      },
+    },
+    async ({ errors, match, tab, limit }) => {
+      const pd = await getPod();
+      const rows = pd.logs
+        .filter((l) => !errors || l.level === "error")
+        .filter((l) => !match || l.text.includes(match))
+        .filter((l) => tab === undefined || pd.pages.indexOf(l.page) === tab)
+        .slice(-(limit ?? 30))
+        .map((l) => {
+          const i = pd.pages.indexOf(l.page);
+          return `${i >= 0 ? `tab ${i}` : "closed tab"} ${l.level}: ${redactString(l.text)}`;
+        });
+      if (!rows.length) return text("No matching console messages. Only messages since the tab joined this pod are kept.");
+      return text(`${UNTRUSTED}\n${rows.join("\n")}`);
+    },
+  );
+
+  server.registerTool(
     "evaluate",
     {
       description: "Run a JavaScript expression in the active tab and return the JSON result. For reading data the other tools do not expose.",
@@ -477,7 +663,7 @@ export async function runServer(): Promise<void> {
     const deadline = Date.now() + 10_000;
     while (true) {
       // A navigation can destroy the page's context while it is being read.
-      const read = await snapshot(p, 1000).then(() => true, () => false);
+      const read = await readPage(p, 1000).then(() => true, () => false);
       const hits = read ? snapshotItems.filter((i) => i.role === t.role && (t.contains ? i.name.includes(t.name) : i.name === t.name)) : [];
       if (hits.length > 1 && t.nth === undefined) {
         throw new Error(`${hits.length} elements match ${wanted}: ${hits.slice(0, 5).map((h) => `"${h.name}"`).join(", ")}. Set nth or a more exact name.`);
@@ -538,7 +724,7 @@ export async function runServer(): Promise<void> {
     if (!onSite(p.url(), recipe.site)) throw new Error(`The tab is not on the recipe's site ${recipe.site}.`);
     switch (step.do) {
       case "click":
-        await (await findElement(p, step)).click({ timeout: 10_000 });
+        await clickOn(await findElement(p, step), `${step.role} "${step.name}"`);
         break;
       case "type": {
         const loc = await findElement(p, step);
@@ -575,7 +761,7 @@ export async function runServer(): Promise<void> {
     "recipe",
     {
       description:
-        "Save and replay a series of steps for one site, so a repeated task does not need the page read again. Before doing a task by hand, list recipes for the site. After finishing a task you will repeat, save it, using the role and name the snapshot printed, with {param} placeholders for what changes, and end with an expect step. If a run fails, it stops at that step and returns a snapshot: fix the steps and save again under the same name. Running a recipe expires earlier snapshot refs. Never put passwords or other secrets in steps.",
+        "Save and replay a series of steps for one site, so a repeated task does not need the page read again. Before doing a task by hand, list recipes for the site. After finishing a task you will repeat, save it, using the role and name the snapshot printed, with {param} placeholders for what changes, and end with an expect step. If a run fails, it stops at that step and returns a snapshot: fix the steps and save again under the same name. Never put passwords or other secrets in steps.",
       inputSchema: {
         action: z.enum(["list", "show", "save", "run", "delete"]),
         name: z.string().optional().describe("Recipe name: lowercase letters, digits, - and _. Required except for list."),

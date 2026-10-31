@@ -115,25 +115,28 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | `pod_window` | Show this pod's window to the user, or minimize it to the taskbar |
 | `navigate` | Open a URL in the active tab |
 | `history` | Back / forward |
-| `snapshot` | Compact view of the page with element refs (`[e12]`) (iframes included) |
+| `snapshot` | Compact view of the page with element refs (`[e12]`) (iframes included). `match` finds one element, `changes` returns only what changed |
 | `read` | Page text as plain text (main content by default) |
 | `network` | JSON responses this pod's tabs received (fetch/XHR), read-only |
 | `response` | One response's JSON body, redacted and size-capped; `path` picks a part |
 | `page_data` | Data the page embeds: JSON-LD, `__NEXT_DATA__`, JSON script tags |
-| `click` | Click by ref |
+| `click` | Click by ref; if something covers the element, the error names it |
 | `type` | Fill an input by ref, optionally press Enter |
 | `press` | Keyboard key or shortcut |
 | `select` | Choose `<select>` options |
 | `hover` | Hover by ref |
+| `drag` | Drag one element onto another by ref |
+| `upload` | Attach local files to a file input or file picker |
 | `scroll` | Scroll by screens, or scroll a ref into view |
-| `wait` | Wait for text or a fixed time |
-| `screenshot` | JPEG of the active tab |
+| `wait` | Wait for text to appear or go away, for the URL to change, or a fixed time |
+| `screenshot` | JPEG of the active tab; `annotate` labels elements with their refs |
 | `dialog` | Accept or dismiss the next `confirm` / `prompt` dialog (alerts are accepted, confirms dismissed by default) |
 | `tabs` | List, open, switch, or close tabs **of this pod only** |
+| `console` | Console messages and uncaught errors from this pod's tabs |
 | `evaluate` | Run a JavaScript expression in the active tab |
 | `recipe` | Save, list, show, run or delete a series of steps for one site |
 
-Action tools accept `snapshot: true` to return a fresh snapshot in the same call.
+Action tools accept `snapshot: true` to return a fresh snapshot in the same call, or `snapshot: "changes"` for only what changed. Tool results also report downloads.
 
 Recipes let an agent repeat a task without reading the page again. Steps find elements by the role and name the snapshot prints, in any iframe, so they survive layout changes. A run stops at the first step that fails, including an `expect` step whose text never appears, and returns the page so the agent can fix the recipe:
 
@@ -165,6 +168,8 @@ Then run it with `{ "action": "run", "name": "place_search", "values": { "query"
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
 | `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
 | `SPECILLUM_RECIPES` | `recipes` next to the profile directory | Directory for saved recipes |
+| `SPECILLUM_ALLOWED_DOMAINS` | any site | Comma-separated sites pods may open, subdomains included |
+| `SPECILLUM_UPLOAD_DIRS` | none | More directories uploads may come from, besides the one the agent runs in |
 
 ## Security model
 
@@ -174,6 +179,8 @@ Read this before you log in to anything important.
 - **Localhost port.** The station listens on `127.0.0.1` only. Any program running on your machine as you could connect to that port while the station is open. Close the station when you are not using it.
 - **Isolation is between agents and windows, not between sites.** Pods share cookies on purpose. That is how logins work. An agent in its pod can use any site you are logged in to in the station.
 - **Prompt injection.** Web pages can contain text meant to manipulate agents. Keep the agent's permissions and the station's logins as narrow as the task needs.
+- **Limit where pods go.** `SPECILLUM_ALLOWED_DOMAINS` stops a pod's tabs and iframes from opening other sites. List only what the task needs. It is a guard rail, not a security boundary: a redirect to another site is caught only after the request was sent, and a page can still fetch or load resources from elsewhere.
+- **Uploads stay near the agent.** `upload` only takes files from the directory the agent runs in, plus `SPECILLUM_UPLOAD_DIRS`, and follows links before checking. Everything in those directories can be sent to a website.
 - **Data tools are read-only and redacted.** `network`, `response` and `page_data` only read what this pod's own tabs already received. They never return headers, mask secret-looking keys (token, password, session, csrf…) and token-shaped values (JWT, `Bearer …`, common API key formats), and cap every result. Masking is a safety net, not a guarantee: the agent can still read the page itself.
 - **Recipes are shared and stay on their site.** Every pod on the station can run a saved recipe, and recipes are plain JSON files on disk, so keep secrets out of their steps. A run stops if the tab leaves the recipe's site, and it refuses to type into password fields.
 - **Open source, no telemetry.** Specillum itself sends no data anywhere, and every line is in this repository. Chrome keeps its own settings and telemetry as usual.

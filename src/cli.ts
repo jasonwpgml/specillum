@@ -18,6 +18,8 @@ Environment:
   SPECILLUM_POD_WINDOW  visible (default) or minimized
   SPECILLUM_WINDOW    Pod window size (default 1280x900)
   SPECILLUM_RECIPES   Directory for saved recipes (default: "recipes" next to the profile)
+  SPECILLUM_ALLOWED_DOMAINS  Comma-separated sites pods may open, subdomains included (default: any)
+  SPECILLUM_UPLOAD_DIRS      More directories uploads may come from, besides the agent's own
 `;
 
 const command = process.argv[2];

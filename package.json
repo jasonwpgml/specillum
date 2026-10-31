@@ -21,7 +21,8 @@
     "test:live": "node test/live.mjs",
     "test:modes": "node test/modes.mjs",
     "test:data": "node test/data.mjs",
-    "test:recipes": "node test/recipes.mjs"
+    "test:recipes": "node test/recipes.mjs",
+    "test:features": "node test/features.mjs"
   },
   "keywords": [
     "mcp",

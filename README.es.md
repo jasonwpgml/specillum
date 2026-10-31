@@ -115,25 +115,28 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | `pod_window` | Muestra la ventana de este pod al usuario o la minimiza en la barra de tareas |
 | `navigate` | Abre una URL en la pestaña activa |
 | `history` | Atrás / adelante |
-| `snapshot` | Vista compacta de la página con referencias a elementos (`[e12]`) (incluye iframes) |
+| `snapshot` | Vista compacta de la página con referencias a elementos (`[e12]`) (incluye iframes). `match` busca un elemento y `changes` devuelve solo lo que cambió |
 | `read` | Texto de la página como texto plano (por defecto, el contenido principal) |
 | `network` | Respuestas JSON (fetch/XHR) que recibieron las pestañas de este pod, solo lectura |
 | `response` | El cuerpo JSON de una respuesta, con datos sensibles ocultos y tamaño limitado; `path` elige una parte |
 | `page_data` | Datos incrustados en la página: JSON-LD, `__NEXT_DATA__`, etiquetas script JSON |
-| `click` | Hace clic por referencia |
+| `click` | Hace clic por referencia; si algo tapa el elemento, el error indica qué es |
 | `type` | Rellena un campo por referencia y, opcionalmente, pulsa Enter |
 | `press` | Tecla o atajo de teclado |
 | `select` | Elige opciones de un `<select>` |
 | `hover` | Pasa el cursor por encima por referencia |
+| `drag` | Arrastra un elemento sobre otro por referencia |
+| `upload` | Adjunta archivos locales a un campo de archivo o selector de archivos |
 | `scroll` | Desplaza por pantallas, o desplaza hasta que una referencia quede visible |
-| `wait` | Espera a que aparezca un texto o durante un tiempo fijo |
-| `screenshot` | JPEG de la pestaña activa |
+| `wait` | Espera a que un texto aparezca o desaparezca, a que cambie la URL o durante un tiempo fijo |
+| `screenshot` | JPEG de la pestaña activa; `annotate` marca los elementos con sus referencias |
 | `dialog` | Acepta o descarta el siguiente diálogo `confirm` / `prompt` (por defecto, los alert se aceptan y los confirm se descartan) |
 | `tabs` | Lista, abre, cambia o cierra pestañas **solo de este pod** |
+| `console` | Mensajes de consola y errores no capturados de las pestañas de este pod |
 | `evaluate` | Ejecuta una expresión de JavaScript en la pestaña activa |
 | `recipe` | Guarda, lista, muestra, ejecuta o elimina una serie de pasos para un sitio |
 
-Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot actualizado en la misma llamada.
+Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot actualizado en la misma llamada, o `snapshot: "changes"` para devolver solo lo que cambió. Los resultados también informan de las descargas.
 
 Las recetas permiten a un agente repetir una tarea sin volver a leer la página. Cada paso busca elementos por el rol y el nombre que muestra el snapshot, también dentro de iframes, así que siguen funcionando si cambia el diseño. La ejecución se detiene en el primer paso que falla (incluido un paso `expect` cuyo texto nunca aparece) y devuelve la página para que el agente pueda corregir la receta:
 
@@ -165,6 +168,8 @@ Después se ejecuta con `{ "action": "run", "name": "place_search", "values": { 
 | `SPECILLUM_POD_WINDOW` | `visible` | Con `minimized`, la ventana del pod se abre minimizada en la barra de tareas y sigue funcionando |
 | `SPECILLUM_WINDOW` | `1280x900` | Tamaño de la ventana del pod |
 | `SPECILLUM_RECIPES` | `recipes` junto al directorio del perfil | Directorio de las recetas guardadas |
+| `SPECILLUM_ALLOWED_DOMAINS` | cualquier sitio | Sitios que los pods pueden abrir, separados por comas, con sus subdominios |
+| `SPECILLUM_UPLOAD_DIRS` | ninguno | Otros directorios desde los que se puede subir archivos, además del directorio donde se ejecuta el agente |
 
 ## Modelo de seguridad
 
@@ -174,6 +179,8 @@ Lee esto antes de iniciar sesión en algo importante.
 - **Puerto en localhost.** La estación escucha únicamente en `127.0.0.1`. Cualquier programa que se ejecute en tu equipo con tu usuario podría conectarse a ese puerto mientras la estación esté abierta. Cierra la estación cuando no la estés usando.
 - **El aislamiento es entre agentes y ventanas, no entre sitios.** Los pods comparten cookies a propósito: así es como funcionan las sesiones. Un agente, desde su pod, puede usar cualquier sitio en el que hayas iniciado sesión en la estación.
 - **Inyección de prompts.** Las páginas web pueden contener texto pensado para manipular a los agentes. Limita los permisos del agente y las sesiones de la estación a lo estrictamente necesario para la tarea.
+- **Limita adónde van los pods.** `SPECILLUM_ALLOWED_DOMAINS` impide que las pestañas e iframes de un pod abran otros sitios. Incluye solo lo que la tarea necesite. Es una barrera de ayuda, no un límite de seguridad: una redirección a otro sitio solo se detecta después de enviar la solicitud, y una página aún puede cargar recursos de otros lugares.
+- **Las subidas se quedan cerca del agente.** `upload` solo acepta archivos del directorio donde se ejecuta el agente y de `SPECILLUM_UPLOAD_DIRS`, y resuelve los enlaces antes de comprobarlo. Todo lo que haya en esos directorios puede enviarse a un sitio web.
 - **Las herramientas de datos son de solo lectura y ocultan secretos.** `network`, `response` y `page_data` solo leen lo que las pestañas de este pod ya recibieron. Nunca devuelven cabeceras, ocultan claves que parecen secretas (token, password, session, csrf…) y valores con forma de token (JWT, `Bearer …`, formatos comunes de claves de API), y limitan el tamaño de cada resultado. El ocultado es una red de seguridad, no una garantía: el agente aún puede leer la propia página.
 - **Las recetas son compartidas y se quedan en su sitio.** Todos los pods de la estación pueden ejecutar una receta guardada, y las recetas son archivos JSON normales en el disco, así que no pongas secretos en sus pasos. La ejecución se detiene si la pestaña sale del sitio de la receta, y nunca escribe en campos de contraseña.
 - **Código abierto, sin telemetría.** Specillum no envía ningún dato a ninguna parte, y cada línea de código está en este repositorio. Chrome mantiene su propia configuración y telemetría como de costumbre.
