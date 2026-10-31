@@ -1,24 +1,20 @@
 // Stable refs, change-only snapshots, covered clicks, uploads, console, drag,
 // downloads and the domain allowlist, against a local site.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { check, closeStation, connectAgent, expect, finish, testStation } from "./helpers.mjs";
 
-const port = "9778";
-const profile = mkdtempSync(join(tmpdir(), "specillum-features-"));
+const station = testStation("features", "9778");
 const workdir = mkdtempSync(join(tmpdir(), "specillum-features-cwd-"));
 const outside = mkdtempSync(join(tmpdir(), "specillum-features-out-"));
 writeFileSync(join(workdir, "notes.txt"), "hello");
 writeFileSync(join(outside, "secret.txt"), "secret");
 mkdirSync(join(workdir, "sub"));
 // Keeps the test's download out of the real Downloads folder.
-mkdirSync(join(profile, "Default"));
-writeFileSync(join(profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: outside, prompt_for_download: false } }));
-const base = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile };
+mkdirSync(join(station.profile, "Default"));
+writeFileSync(join(station.profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: outside, prompt_for_download: false } }));
 
 const html = (title, body) => `<!doctype html><meta charset=utf-8><title>${title}</title>${body}`;
 const site = createServer((req, res) => {
@@ -64,38 +60,12 @@ await new Promise((r) => site.listen(0, "127.0.0.1", r));
 const origin = `http://127.0.0.1:${site.address().port}`;
 const outsider = `http://localhost:${site.address().port}`;
 
-async function agent(name, env = {}, cwd = workdir) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: [join(process.cwd(), "dist/cli.js")], cwd, env: { ...base, SPECILLUM_POD: name, ...env } }));
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    const out = res.content.map((c) => c.text ?? `[${c.type}]`).join("\n");
-    if (res.isError) throw new Error(`${tool}: ${out}`);
-    return out;
-  };
-  const fails = (tool, args) => call(tool, args).then((out) => { throw new Error(`${tool} should have failed:\n${out}`); }, (e) => e.message);
-  return { client, call, fails };
-}
-
-const expect = (cond, msg) => {
-  if (!cond) throw new Error(msg);
-};
+const agent = (name, env = {}) => connectAgent(station, name, { env: { SPECILLUM_POD: name, ...env }, cwd: workdir });
 const refOf = (snap, line) => {
   const ref = new RegExp(`\\[(\\S+?)\\] ${line}`).exec(snap)?.[1];
   expect(ref, `no ref for ${line} in:\n${snap}`);
   return ref;
 };
-
-let failed = 0;
-async function check(name, fn) {
-  try {
-    const d = await fn();
-    console.log(`PASS ${name}${d ? " — " + d : ""}`);
-  } catch (e) {
-    failed++;
-    console.log(`FAIL ${name} — ${String(e.message ?? e).slice(0, 1500)}`);
-  }
-}
 
 let a, walled;
 try {
@@ -250,6 +220,21 @@ try {
     expect((await a.call("snapshot")).startsWith("(Data below came from the website"), "snapshot");
   });
 
+  await check("SPECILLUM_TOOLS adds groups to core, and rejects unknown ones", async () => {
+    const listed = async (groups) => {
+      const agentWith = await agent("groups", { SPECILLUM_TOOLS: groups });
+      const { tools } = await agentWith.client.listTools();
+      await agentWith.client.close();
+      return tools.map((t) => t.name);
+    };
+    const core = await listed("");
+    expect(core.includes("click") && !core.includes("evaluate") && !core.includes("upload") && !core.includes("recipe"), core.join());
+    const data = await listed("data");
+    expect(data.includes("network") && data.includes("click") && !data.includes("evaluate"), data.join());
+    const refused = await listed("nope").then(() => false, () => true);
+    expect(refused, "unknown group was accepted");
+  });
+
   walled = await agent("walled", { SPECILLUM_ALLOWED_DOMAINS: "127.0.0.1" });
   await check("the allowlist stops every way out of the listed sites", async () => {
     const snap = await walled.call("navigate", { url: `${origin}/popup`, snapshot: true });
@@ -285,14 +270,10 @@ try {
 } finally {
   await a?.client.close().catch(() => {});
   await walled?.client.close().catch(() => {});
-  try {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    await (await browser.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
   site.closeAllConnections();
   site.close();
-  await new Promise((r) => setTimeout(r, 1000));
-  for (const dir of [profile, workdir, outside]) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  await closeStation(station);
+  for (const dir of [workdir, outside]) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  finish();
 }
-console.log(failed ? `${failed} FAILED` : "ALL PASSED");
-process.exit(failed ? 1 : 0);
+process.exit(process.exitCode);

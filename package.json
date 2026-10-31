@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
+    "test": "npm run build && node test/smoke.mjs && node test/recipes.mjs && node test/features.mjs",
     "smoke": "node test/smoke.mjs",
     "test:live": "node test/live.mjs",
     "test:modes": "node test/modes.mjs",

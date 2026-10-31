@@ -110,12 +110,3 @@ export function fillStep(step: Step, values: Record<string, string>): Step {
   for (const [k, v] of Object.entries(step)) if (typeof v === "string") out[k] = fill(v, step.do === "goto");
   return out as Step;
 }
-
-export function onSite(url: string, site: string): boolean {
-  try {
-    const { protocol, hostname } = new URL(url);
-    return (protocol === "https:" || protocol === "http:") && (hostname === site || hostname.endsWith(`.${site}`));
-  } catch {
-    return false;
-  }
-}

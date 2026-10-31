@@ -167,6 +167,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_KEEP_POD` | 설정 안 됨 | `1`로 설정하면 에이전트가 종료된 뒤에도 포드 창을 유지 |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized`로 설정하면 포드 창이 작업 표시줄에 최소화된 채 열리고, 그 상태로도 작동 |
 | `SPECILLUM_HEADLESS` | 설정 안 함 | `1`이면 창 없이 스테이션 실행. 지켜보거나 로그인할 수 없고, 사이트가 헤드리스임을 알아챌 수 있음. `specillum open`은 항상 브라우저를 표시하므로 헤드리스 스테이션을 먼저 닫을 것 |
+| `SPECILLUM_TOOLS` | 모든 그룹 | `core`에 더할 도구 그룹을 쉼표로 구분해 지정: `files`(upload), `data`(network, response, page_data), `debug`(console, evaluate), `recipes`(recipe). 빈 값이면 `core`만 사용 |
 | `SPECILLUM_WINDOW` | `1280x900` | 포드 창 크기 |
 | `SPECILLUM_RECIPES` | 프로필 디렉터리 옆의 `recipes` | 저장된 레시피 디렉터리 |
 | `SPECILLUM_ALLOWED_DOMAINS` | 모든 사이트 | 포드가 열 수 있는 사이트를 쉼표로 구분해 지정 (하위 도메인 포함) |
@@ -224,7 +225,7 @@ Specillum은 [Apache License 2.0](LICENSE)에 따라 상업적 용도 여부와 
 
 ## 기여하기
 
-이슈와 풀 리퀘스트는 언제든 환영합니다. [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요. `npm run smoke`를 실행하면 두 에이전트 사이의 격리를 처음부터 끝까지(end-to-end) 검증할 수 있습니다.
+이슈와 풀 리퀘스트는 언제든 환영합니다. [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요. `npm test`를 실행하면 두 에이전트 사이의 격리를 처음부터 끝까지(end-to-end) 검증할 수 있습니다.
 
 ## 라이선스
 

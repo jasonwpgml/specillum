@@ -167,6 +167,7 @@ Then run it with `{ "action": "run", "name": "place_search", "values": { "query"
 | `SPECILLUM_KEEP_POD` | unset | Set to `1` to keep the pod window after the agent exits |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
 | `SPECILLUM_HEADLESS` | unset | Set to `1` to run the station with no windows. You cannot watch or log in, and sites can tell it is headless. `specillum open` always shows the browser; close a headless station first |
+| `SPECILLUM_TOOLS` | all groups | Comma-separated tool groups to add to `core`: `files` (upload), `data` (network, response, page_data), `debug` (console, evaluate), `recipes` (recipe). Empty means `core` only |
 | `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
 | `SPECILLUM_RECIPES` | `recipes` next to the profile directory | Directory for saved recipes |
 | `SPECILLUM_ALLOWED_DOMAINS` | any site | Comma-separated sites pods may open, subdomains included |
@@ -224,7 +225,7 @@ And if it helped, a star is always appreciated.
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Run `npm run smoke` to check two-agent isolation end to end.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Run `npm test` to check two-agent isolation end to end.
 
 ## License
 

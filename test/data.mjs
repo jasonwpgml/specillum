@@ -1,17 +1,12 @@
 // Read-only data tools: network, response, page_data. A local site serves
 // JSON full of fake secrets, so redaction, size caps and pod isolation can be
 // checked exactly; then the tools run once against a real site.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { check, closeStation, connectAgent, expect, finish, testStation } from "./helpers.mjs";
 
 const port = "9666";
-const profile = mkdtempSync(join(tmpdir(), "specillum-data-"));
-const base = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile };
+const station = testStation("data", port);
 
 const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImlhdCI6MX0.c2lnbmF0dXJlLXZhbHVlLWhlcmU";
 const me = {
@@ -57,31 +52,8 @@ const site = createServer((req, res) => {
 await new Promise((r) => site.listen(0, "127.0.0.1", r));
 const origin = `http://127.0.0.1:${site.address().port}`;
 
-async function agent(name) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: ["dist/cli.js"], env: { ...base, SPECILLUM_POD: name } }));
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    const out = res.content.map((c) => c.text ?? `[${c.type}]`).join("\n");
-    if (res.isError) throw new Error(`${tool}: ${out}`);
-    return out;
-  };
-  return { client, call };
-}
+const agent = (name) => connectAgent(station, name, { env: { SPECILLUM_POD: name } });
 
-let failed = 0;
-async function check(name, fn) {
-  try {
-    const d = await fn();
-    console.log(`PASS ${name}${d ? " — " + d : ""}`);
-  } catch (e) {
-    failed++;
-    console.log(`FAIL ${name} — ${String(e.message ?? e).slice(0, 1500)}`);
-  }
-}
-const expect = (c, m) => {
-  if (!c) throw new Error(m);
-};
 const noSecrets = (out) => {
   const leaked = out.match(/[\w-]*SECRET[\w-]*|ghp_a{10}|abcdefghijklmnopqrstuvwxyz0123|eyJhbGciOiJIUzI1NiJ9\.eyJ/g);
   expect(!leaked, `leaked ${leaked?.join(", ")}:\n${out.slice(0, 1500)}`);
@@ -171,12 +143,6 @@ try {
   await a.client.close().catch(() => {});
   await b.client.close().catch(() => {});
   site.close();
-  try {
-    const br = observer ?? (await chromium.connectOverCDP(`http://127.0.0.1:${port}`));
-    await (await br.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
-  await new Promise((r) => setTimeout(r, 1500));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
-  console.log(failed ? `\n${failed} failed` : "\nALL PASSED");
-  process.exitCode = failed ? 1 : 0;
+  await closeStation(station);
+  finish();
 }

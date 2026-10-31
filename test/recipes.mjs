@@ -1,18 +1,14 @@
 // Recipes: saved steps replayed by role and name. A local site plays a map
 // search with an iframe, a moving layout, a canvas and a password form, so a
 // replay that goes wrong has to stop instead of carrying on.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { check, closeStation, connectAgent, expect, finish, testStation } from "./helpers.mjs";
 
-const port = "9777";
-const profile = mkdtempSync(join(tmpdir(), "specillum-recipes-"));
-const recipes = join(profile, "..", `${profile.split(/[\\/]/).pop()}-recipes`);
-const base = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile, SPECILLUM_RECIPES: recipes };
+const recipes = join(tmpdir(), `specillum-recipes-${process.pid}`);
+const station = testStation("recipes", "9777", { SPECILLUM_RECIPES: recipes });
 
 const html = (title, body) => `<!doctype html><meta charset=utf-8><title>${title}</title>${body}`;
 const site = createServer((req, res) => {
@@ -46,31 +42,8 @@ await new Promise((r) => site.listen(0, "127.0.0.1", r));
 const origin = `http://127.0.0.1:${site.address().port}`;
 const host = "127.0.0.1";
 
-async function agent(name) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: ["dist/cli.js"], env: { ...base, SPECILLUM_POD: name } }));
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    const out = res.content.map((c) => c.text ?? `[${c.type}]`).join("\n");
-    if (res.isError) throw new Error(`${tool}: ${out}`);
-    return out;
-  };
-  return { client, call };
-}
+const agent = (name) => connectAgent(station, name, { env: { SPECILLUM_POD: name } });
 
-let failed = 0;
-async function check(name, fn) {
-  try {
-    const d = await fn();
-    console.log(`PASS ${name}${d ? " — " + d : ""}`);
-  } catch (e) {
-    failed++;
-    console.log(`FAIL ${name} — ${String(e.message ?? e).slice(0, 1500)}`);
-  }
-}
-const expect = (c, m) => {
-  if (!c) throw new Error(m);
-};
 const refused = async (promise, pattern) => {
   const out = await promise.then(
     (r) => {
@@ -232,13 +205,7 @@ try {
   await a.client.close().catch(() => {});
   await b.client.close().catch(() => {});
   site.close();
-  try {
-    const br = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    await (await br.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
-  await new Promise((r) => setTimeout(r, 1500));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  await closeStation(station);
   rmSync(recipes, { recursive: true, force: true });
-  console.log(failed ? `\n${failed} failed` : "\nALL PASSED");
-  process.exitCode = failed ? 1 : 0;
+  finish();
 }

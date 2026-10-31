@@ -1,43 +1,11 @@
 // Window modes and the user's own tabs: a minimized pod works like a visible
 // one, and a pod never answers dialogs in tabs it does not own.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { check, closeStation, connectAgent, expect, finish, testStation } from "./helpers.mjs";
 
 const port = "9777";
-const profile = mkdtempSync(join(tmpdir(), "specillum-modes-"));
-const base = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile };
-
-async function agent(name, mode) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(
-    new StdioClientTransport({ command: "node", args: ["dist/cli.js"], env: { ...base, SPECILLUM_POD_WINDOW: mode } }),
-  );
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    const out = res.content.map((c) => c.text ?? `[${c.type}:${c.data?.length ?? 0}]`).join("\n");
-    if (res.isError) throw new Error(`${tool}: ${out}`);
-    return out;
-  };
-  return { client, call };
-}
-
-let failed = 0;
-async function check(name, fn) {
-  try {
-    const d = await fn();
-    console.log(`PASS ${name}${d ? " — " + d : ""}`);
-  } catch (e) {
-    failed++;
-    console.log(`FAIL ${name} — ${String(e.message ?? e).slice(0, 800)}`);
-  }
-}
-const expect = (c, m) => {
-  if (!c) throw new Error(m);
-};
+const station = testStation("modes", port, { SPECILLUM_HEADLESS: "0" });
+const agent = (name, mode) => connectAgent(station, name, { env: { SPECILLUM_POD_WINDOW: mode } });
 
 const mini = await agent("mini-agent", "minimized");
 let observer;
@@ -118,12 +86,6 @@ try {
   });
 } finally {
   await mini.client.close().catch(() => {});
-  try {
-    const b = observer ?? (await chromium.connectOverCDP(`http://127.0.0.1:${port}`));
-    await (await b.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
-  await new Promise((r) => setTimeout(r, 1500));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
-  console.log(failed ? `\n${failed} failed` : "\nALL PASSED");
-  process.exitCode = failed ? 1 : 0;
+  await closeStation(station);
+  finish();
 }

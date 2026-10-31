@@ -167,6 +167,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_KEEP_POD` | 未設定 | `1` を指定すると、エージェントの終了後もポッドのウィンドウを残す |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` にするとポッドのウィンドウはタスクバーに最小化された状態で開き、そのまま動作する |
 | `SPECILLUM_HEADLESS` | 未設定 | `1` にするとウィンドウなしでステーションを実行。画面の確認やログインはできず、サイトからヘッドレスだと判別される場合がある。`specillum open` は常にブラウザを表示するため、先にヘッドレスのステーションを閉じること |
+| `SPECILLUM_TOOLS` | すべてのグループ | `core` に追加するツールグループをカンマ区切りで指定: `files`（upload）、`data`（network, response, page_data）、`debug`（console, evaluate）、`recipes`（recipe）。空なら `core` のみ |
 | `SPECILLUM_WINDOW` | `1280x900` | ポッドのウィンドウサイズ |
 | `SPECILLUM_RECIPES` | プロファイルディレクトリの隣の `recipes` | 保存したレシピのディレクトリ |
 | `SPECILLUM_ALLOWED_DOMAINS` | すべてのサイト | ポッドが開けるサイトをカンマ区切りで指定（サブドメインを含む） |
@@ -224,7 +225,7 @@ Specillum は [Apache License 2.0](LICENSE) のもとで、商用・非商用を
 
 ## コントリビュート
 
-Issue やプルリクエストを歓迎します。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md) をご覧ください。`npm run smoke` を実行すると、2 つのエージェント間の分離をエンドツーエンドで確認できます。
+Issue やプルリクエストを歓迎します。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md) をご覧ください。`npm test` を実行すると、2 つのエージェント間の分離をエンドツーエンドで確認できます。
 
 ## ライセンス
 

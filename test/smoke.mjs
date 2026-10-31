@@ -1,16 +1,11 @@
 // End-to-end check: two agents connect at once, each gets its own pod window,
 // neither can see the other's tabs, and a pod closes when its agent leaves.
 // Uses a throwaway profile and port so it never touches your real station.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { closeStation, connectAgent, testStation } from "./helpers.mjs";
 
 const port = "9444";
-const profile = mkdtempSync(join(tmpdir(), "specillum-smoke-"));
-const env = { ...process.env, SPECILLUM_PORT: port, SPECILLUM_PROFILE: profile };
+const station = testStation("smoke", port);
 
 const page = (title, body) => "data:text/html," + encodeURIComponent(`<title>${title}</title>${body}`);
 const FORM = page(
@@ -18,16 +13,7 @@ const FORM = page(
   `<h1>Sign up</h1><label>Email <input id=e></label><button onclick="document.title='sent:'+e.value">Send</button><a href="https://example.com/">Elsewhere</a>`,
 );
 
-async function agent(name) {
-  const client = new Client({ name, version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: ["dist/cli.js"], env }));
-  const call = async (tool, args = {}) => {
-    const res = await client.callTool({ name: tool, arguments: args });
-    if (res.isError) throw new Error(`${name}.${tool}: ${res.content[0].text}`);
-    return res.content[0].text ?? "";
-  };
-  return { client, call };
-}
+const agent = (name) => connectAgent(station, name);
 
 const assert = (cond, msg) => {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -79,18 +65,12 @@ try {
   assert(!left.includes("Alpha second") && left.includes("Beta home"), "alpha's pod closed when alpha disconnected; beta untouched");
 
   await b.client.close();
-  await cdp.send("Browser.close").catch(() => {});
   console.log("\nALL PASSED");
 } catch (err) {
   console.error(err);
   process.exitCode = 1;
   await a?.client.close().catch(() => {});
   await b?.client.close().catch(() => {});
-  try {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    await (await browser.newBrowserCDPSession()).send("Browser.close");
-  } catch {}
 } finally {
-  await new Promise((r) => setTimeout(r, 1000));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  await closeStation(station);
 }

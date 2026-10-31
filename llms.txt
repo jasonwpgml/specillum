@@ -10,6 +10,7 @@ Key facts:
 - Read-only data tools (network, response, page_data) return the JSON a pod's pages received or embed, with headers dropped, secrets masked and sizes capped.
 - Recipes (the recipe tool) save a series of steps for one site and replay them by element role and name, so a repeated task does not need the page read again. A run stops at the first failed step.
 - Tools: pod_status, pod_window, navigate, history, snapshot, read, click, type, press, select, hover, drag, upload, scroll, wait, screenshot, dialog, tabs, network, response, page_data, console, evaluate, recipe.
+- SPECILLUM_TOOLS picks tool groups (files, data, debug, recipes) on top of core, so agents only pay tokens for the tools they use.
 - Optional limits: SPECILLUM_ALLOWED_DOMAINS keeps pods on listed sites; uploads only come from the agent's directory and SPECILLUM_UPLOAD_DIRS.
 - Works with any MCP client over stdio. Built on Playwright (playwright-core) over the Chrome DevTools Protocol.
 - Tested on Windows; macOS and Linux browser paths are included.

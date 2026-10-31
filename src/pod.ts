@@ -2,41 +2,10 @@
 // hands out pages it opened itself (or popups those pages opened), so an
 // agent cannot see or touch the user's tabs or another agent's pod.
 import type { Browser, BrowserContext, CDPSession, Page, Request } from "playwright-core";
-import { isJsonType, redactUrl } from "./data.js";
-import { onSite } from "./recipes.js";
+import { guardPage } from "./allowlist.js";
+import { ConsoleLog, NetworkLog, watchDownloads } from "./records.js";
 
 const CONTENT_REQUESTS = new Set(["document", "script", "xhr", "fetch"]);
-
-// A response one of the pod's pages received from a fetch or XHR. Only JSON
-// bodies are kept, parsed, and only up to MAX_BODY characters.
-export type Captured = {
-  id: number;
-  page: Page;
-  method: string;
-  url: string;
-  status: number;
-  contentType: string;
-  json?: unknown;
-  chars?: number;
-  skipped?: string;
-};
-const MAX_CAPTURED = 150;
-const MAX_BODY = 2_000_000;
-// Bodies stay parsed in memory, so the oldest give theirs up past this total.
-const MAX_BODIES = 16_000_000;
-
-export type LogEntry = { page: Page; level: string; text: string };
-const MAX_LOGS = 200;
-const MAX_LOG_CHARS = 500;
-
-// With SPECILLUM_ALLOWED_DOMAINS set, a pod's tabs and iframes may only open
-// these sites and their subdomains. about:blank stays open, since every window
-// starts there; data:, file: and chrome: pages do not.
-const ALLOWED = process.env.SPECILLUM_ALLOWED_DOMAINS?.split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
-export const allowedUrl = (url: string) => !ALLOWED || url.startsWith("about:") || ALLOWED.some((site) => onSite(url, site));
-export function assertAllowed(url: string): void {
-  if (!allowedUrl(url)) throw new Error(`${redactUrl(url)} is outside SPECILLUM_ALLOWED_DOMAINS (${ALLOWED!.join(", ")}).`);
-}
 
 async function targetIdOf(context: BrowserContext, page: Page): Promise<string> {
   const session = await context.newCDPSession(page);
@@ -119,92 +88,14 @@ export class Pod {
     await this.cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: this.windowState } });
   }
 
-  readonly captured: Captured[] = [];
-  private nextCaptureId = 1;
-
-  private async capture(page: Page, req: Request): Promise<void> {
-    const res = await req.response().catch(() => null);
-    if (!res) return;
-    const contentType = (await res.headerValue("content-type").catch(() => null)) ?? "";
-    const entry: Captured = { id: this.nextCaptureId++, page, method: req.method(), url: req.url(), status: res.status(), contentType };
-    if (!isJsonType(contentType)) entry.skipped = "not JSON";
-    else {
-      const body = await res.text().catch(() => undefined);
-      if (body === undefined) entry.skipped = "body unavailable";
-      else if (body.length > MAX_BODY) entry.skipped = `too large (${body.length} chars)`;
-      else {
-        try {
-          entry.json = JSON.parse(body);
-          entry.chars = body.length;
-        } catch {
-          entry.skipped = "invalid JSON";
-        }
-      }
-    }
-    this.captured.push(entry);
-    if (this.captured.length > MAX_CAPTURED) this.captured.shift();
-    let total = this.captured.reduce((sum, c) => sum + (c.json !== undefined ? c.chars ?? 0 : 0), 0);
-    for (const old of this.captured) {
-      if (total <= MAX_BODIES || old === entry) break;
-      if (old.json === undefined) continue;
-      total -= old.chars ?? 0;
-      old.json = undefined;
-      old.skipped = "dropped to save memory; open the page again";
-    }
-  }
+  readonly network = new NetworkLog();
+  readonly console = new ConsoleLog();
 
   // Requests that can still change the page, per pod page.
   private readonly inflight = new Map<Page, Map<Request, number>>();
 
   // One CDP session per pod page, kept for the page's lifetime.
   private readonly sessions = new Map<Page, Promise<CDPSession | undefined>>();
-
-  readonly logs: LogEntry[] = [];
-
-  private log(page: Page, level: string, text: string): void {
-    this.logs.push({ page, level, text: text.slice(0, MAX_LOG_CHARS) });
-    if (this.logs.length > MAX_LOGS) this.logs.shift();
-  }
-
-  // Blocks a navigation before it leaves, and sends the tab away if one got past
-  // the route: a popup that started before it was installed, or a history step
-  // served from the back/forward cache. The route costs the tab its HTTP cache,
-  // so it is only installed when the allowlist is in use. "aborted" keeps the tab
-  // on its page, where other failure codes would load an error page instead.
-  private async guard(page: Page): Promise<void> {
-    if (!ALLOWED) return;
-    const refuse = (url: string) => this.notes.push(`blocked ${redactUrl(url)}: outside SPECILLUM_ALLOWED_DOMAINS`);
-    await page.route("**/*", (route, req) => {
-      if (!req.isNavigationRequest() || allowedUrl(req.url())) return route.fallback();
-      refuse(req.url());
-      return route.abort("aborted");
-    });
-    const check = (url: string) => {
-      if (allowedUrl(url)) return;
-      refuse(url);
-      void page.goto("about:blank").catch(() => {});
-    };
-    page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame()) check(frame.url());
-    });
-    check(page.url());
-  }
-
-  // Chrome reports downloads on the page's own session, so nothing here touches
-  // the station's download settings or sees other windows' files.
-  private watchDownloads(session: CDPSession): void {
-    const names = new Map<string, string>();
-    session.on("Page.downloadWillBegin", ({ guid, suggestedFilename }) => {
-      names.set(guid, suggestedFilename);
-      this.notes.push(`download started: ${suggestedFilename}`);
-    });
-    session.on("Page.downloadProgress", ({ guid, state }) => {
-      if (state === "inProgress") return;
-      this.notes.push(`download ${state === "completed" ? "finished, in the station's download folder" : "canceled"}: ${names.get(guid) ?? guid}`);
-      names.delete(guid);
-    });
-    void session.send("Page.enable").catch(() => {});
-  }
 
   private adopt(page: Page): Page {
     if (this.pages.includes(page)) return page;
@@ -218,8 +109,9 @@ export class Pod {
       this.context.newCDPSession(page).then(async (s) => {
         await s.send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
         if (this.windowState === "minimized") await this.applyWindowState(s).catch(() => {});
-        this.watchDownloads(s);
-        await this.guard(page).catch(() => {});
+        const note = (message: string) => void this.notes.push(message);
+        watchDownloads(s, note);
+        await guardPage(page, note).catch(() => {});
         return s;
       }).catch(() => undefined),
     );
@@ -231,11 +123,11 @@ export class Pod {
     });
     page.on("requestfinished", (r) => {
       done(r);
-      if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.capture(page, r);
+      if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.network.add(page, r);
     });
     page.on("requestfailed", done);
-    page.on("console", (m) => this.log(page, m.type(), m.text()));
-    page.on("pageerror", (e) => this.log(page, "error", `uncaught ${e.name}: ${e.message}`));
+    page.on("console", (m) => this.console.add(page, m.type(), m.text()));
+    page.on("pageerror", (e) => this.console.add(page, "error", `uncaught ${e.name}: ${e.message}`));
     page.on("popup", (popup) => {
       if (this.pages.includes(popup)) return;
       this.adopt(popup);
