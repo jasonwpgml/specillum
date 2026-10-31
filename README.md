@@ -131,8 +131,27 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | `dialog` | Accept or dismiss the next `confirm` / `prompt` dialog (alerts are accepted, confirms dismissed by default) |
 | `tabs` | List, open, switch, or close tabs **of this pod only** |
 | `evaluate` | Run a JavaScript expression in the active tab |
+| `recipe` | Save, list, show, run or delete a series of steps for one site |
 
 Action tools accept `snapshot: true` to return a fresh snapshot in the same call.
+
+Recipes let an agent repeat a task without reading the page again. Steps find elements by the role and name the snapshot prints, in any iframe, so they survive layout changes. A run stops at the first step that fails, including an `expect` step whose text never appears, and returns the page so the agent can fix the recipe:
+
+```json
+{
+  "action": "save",
+  "name": "place_search",
+  "site": "naver.com",
+  "params": ["query"],
+  "steps": [
+    { "do": "goto", "url": "https://map.naver.com/" },
+    { "do": "type", "role": "combobox", "name": "네이버지도 검색", "text": "{query}", "submit": true },
+    { "do": "expect", "text": "{query}" }
+  ]
+}
+```
+
+Then run it with `{ "action": "run", "name": "place_search", "values": { "query": "Gwanghwamun" } }`. Other steps are `click`, `press` and `click_at`, which takes coordinates for what has no element, such as a map canvas. It must be followed by `expect` and only runs at the viewport size it was saved with.
 
 ## Configuration
 
@@ -145,6 +164,7 @@ Action tools accept `snapshot: true` to return a fresh snapshot in the same call
 | `SPECILLUM_KEEP_POD` | unset | Set to `1` to keep the pod window after the agent exits |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
 | `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
+| `SPECILLUM_RECIPES` | `recipes` next to the profile directory | Directory for saved recipes |
 
 ## Security model
 
@@ -155,6 +175,7 @@ Read this before you log in to anything important.
 - **Isolation is between agents and windows, not between sites.** Pods share cookies on purpose. That is how logins work. An agent in its pod can use any site you are logged in to in the station.
 - **Prompt injection.** Web pages can contain text meant to manipulate agents. Keep the agent's permissions and the station's logins as narrow as the task needs.
 - **Data tools are read-only and redacted.** `network`, `response` and `page_data` only read what this pod's own tabs already received. They never return headers, mask secret-looking keys (token, password, session, csrf…) and token-shaped values (JWT, `Bearer …`, common API key formats), and cap every result. Masking is a safety net, not a guarantee: the agent can still read the page itself.
+- **Recipes are shared and stay on their site.** Every pod on the station can run a saved recipe, and recipes are plain JSON files on disk, so keep secrets out of their steps. A run stops if the tab leaves the recipe's site, and it refuses to type into password fields.
 - **Open source, no telemetry.** Specillum itself sends no data anywhere, and every line is in this repository. Chrome keeps its own settings and telemetry as usual.
 
 ## FAQ

@@ -17,6 +17,7 @@ Environment:
   SPECILLUM_KEEP_POD  Set to 1 to keep the pod window open after the agent exits
   SPECILLUM_POD_WINDOW  visible (default) or minimized
   SPECILLUM_WINDOW    Pod window size (default 1280x900)
+  SPECILLUM_RECIPES   Directory for saved recipes (default: "recipes" next to the profile)
 `;
 
 const command = process.argv[2];

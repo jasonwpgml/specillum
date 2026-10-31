@@ -131,8 +131,27 @@ args = ["-y", "specillum"]
 | `dialog` | 接受或取消下一个 `confirm` / `prompt` 对话框（默认接受 alert、取消 confirm） |
 | `tabs` | 列出、打开、切换或关闭标签页（**仅限本舱**） |
 | `evaluate` | 在当前标签页中执行一段 JavaScript 表达式 |
+| `recipe` | 保存、列出、查看、运行或删除针对某个网站的一系列步骤 |
 
 操作类工具均支持 `snapshot: true` 参数，可在同一次调用中直接返回最新快照。
+
+配方让智能体无需重新读取页面就能重复同一任务。每个步骤按快照中显示的角色和名称查找元素，也会查找 iframe 内部，因此布局变化后仍然有效。运行会在第一个失败的步骤处停止（包括 `expect` 步骤的文本始终未出现的情况），并返回页面状态，方便智能体修复配方：
+
+```json
+{
+  "action": "save",
+  "name": "place_search",
+  "site": "naver.com",
+  "params": ["query"],
+  "steps": [
+    { "do": "goto", "url": "https://map.naver.com/" },
+    { "do": "type", "role": "combobox", "name": "네이버지도 검색", "text": "{query}", "submit": true },
+    { "do": "expect", "text": "{query}" }
+  ]
+}
+```
+
+运行方式为 `{ "action": "run", "name": "place_search", "values": { "query": "光化门" } }`。其他步骤还有 `click`、`press` 和 `click_at`。`click_at` 用坐标点击没有元素的位置（例如地图画布），其后必须紧跟 `expect`，并且只在与保存时相同的视口大小下运行。
 
 ## 配置
 
@@ -145,6 +164,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_KEEP_POD` | 未设置 | 设为 `1` 时，智能体退出后保留舱窗口 |
 | `SPECILLUM_POD_WINDOW` | `visible` | 设为 `minimized` 时，舱窗口以最小化状态在任务栏中打开，并照常工作 |
 | `SPECILLUM_WINDOW` | `1280x900` | 舱窗口大小 |
+| `SPECILLUM_RECIPES` | 配置文件目录旁的 `recipes` | 已保存配方的目录 |
 
 ## 安全模型
 
@@ -155,6 +175,7 @@ args = ["-y", "specillum"]
 - **隔离发生在智能体与窗口之间，而不是网站之间。** 各个舱是有意共享 Cookie 的，登录状态正是靠这一点生效。舱中的智能体可以使用你在主站中登录过的任何网站。
 - **提示词注入。** 网页中可能藏有专门用来操纵智能体的文字。请把智能体的权限和主站中登录的账号都限制在任务所需的最小范围内。
 - **数据工具只读且会脱敏。** `network`、`response` 和 `page_data` 只读取本舱标签页已经收到的内容。它们从不返回请求头，会遮蔽看起来像机密的键（token、password、session、csrf 等）和形似令牌的值（JWT、`Bearer …`、常见 API 密钥格式），并限制每个结果的大小。脱敏只是安全网，而非保证：智能体仍然可以读取页面本身。
+- **配方是共享的，且只在指定网站内运行。** 主站上的所有舱都能运行已保存的配方，配方以普通 JSON 文件存放在磁盘上，因此请勿在步骤中写入机密。标签页离开配方指定的网站时运行会停止，也不会向密码框输入内容。
 - **开源，无遥测。** Specillum 本身不会向任何地方发送数据，每一行代码都在本仓库中。Chrome 自身的设置和遥测则照常运作。
 
 ## 常见问题

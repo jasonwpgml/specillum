@@ -7,7 +7,8 @@
 
 export const REF_ATTR = "data-specillum-ref";
 
-export type FrameSnapshot = { meta: string; lines: string[]; hidden: number };
+export type SnapshotItem = { ref: string; role: string; name: string };
+export type FrameSnapshot = { meta: string; lines: string[]; items: SnapshotItem[]; hidden: number };
 
 // prefix makes refs unique across frames: "e" in the main frame, "f2e" in frame 2.
 export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean }): FrameSnapshot {
@@ -90,12 +91,15 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   const picked = ordered.slice(0, maxElements);
 
   const lines: string[] = [];
+  const items: SnapshotItem[] = [];
   let n = 0;
   for (const el of picked) {
     const ref = `${prefix}${++n}`;
     el.setAttribute(refAttr, ref);
     const role = roleOf(el);
-    let line = `[${ref}] ${role} "${nameOf(el)}"`;
+    const name = nameOf(el);
+    items.push({ ref, role, name });
+    let line = `[${ref}] ${role} "${name}"`;
     if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
       line += el.checked ? " checked" : "";
     } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -114,7 +118,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   }
 
   const hidden = candidates.length - picked.length;
-  if (!args.meta) return { meta: "", lines, hidden };
+  if (!args.meta) return { meta: "", lines, items, hidden };
 
   const headings = [...document.querySelectorAll("h1, h2, h3")]
     .filter(visible)
@@ -130,7 +134,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   ]
     .filter(Boolean)
     .join("\n");
-  return { meta, lines, hidden };
+  return { meta, lines, items, hidden };
 }
 
 export function readInPage(args: { selector?: string; maxChars: number }): string {

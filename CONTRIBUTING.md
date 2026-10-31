@@ -19,6 +19,7 @@ The smoke test launches its own Chrome on port 9444 with a temporary profile, so
 | `src/station.ts` | Finds and launches the shared Chrome (the station) with a dedicated profile and a localhost debugging port |
 | `src/pod.ts` | One agent's private window; only hands out pages it opened |
 | `src/snapshot.ts` | In-page code for the compact snapshot (refs like `[e12]`) and text reading |
+| `src/recipes.ts` | Saved recipes: step format, validation, files on disk |
 | `src/server.ts` | MCP tools |
 | `src/cli.ts` | `specillum`, `specillum open`, `specillum help` |
 

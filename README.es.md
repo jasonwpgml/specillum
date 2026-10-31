@@ -131,8 +131,27 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | `dialog` | Acepta o descarta el siguiente diálogo `confirm` / `prompt` (por defecto, los alert se aceptan y los confirm se descartan) |
 | `tabs` | Lista, abre, cambia o cierra pestañas **solo de este pod** |
 | `evaluate` | Ejecuta una expresión de JavaScript en la pestaña activa |
+| `recipe` | Guarda, lista, muestra, ejecuta o elimina una serie de pasos para un sitio |
 
 Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot actualizado en la misma llamada.
+
+Las recetas permiten a un agente repetir una tarea sin volver a leer la página. Cada paso busca elementos por el rol y el nombre que muestra el snapshot, también dentro de iframes, así que siguen funcionando si cambia el diseño. La ejecución se detiene en el primer paso que falla (incluido un paso `expect` cuyo texto nunca aparece) y devuelve la página para que el agente pueda corregir la receta:
+
+```json
+{
+  "action": "save",
+  "name": "place_search",
+  "site": "naver.com",
+  "params": ["query"],
+  "steps": [
+    { "do": "goto", "url": "https://map.naver.com/" },
+    { "do": "type", "role": "combobox", "name": "네이버지도 검색", "text": "{query}", "submit": true },
+    { "do": "expect", "text": "{query}" }
+  ]
+}
+```
+
+Después se ejecuta con `{ "action": "run", "name": "place_search", "values": { "query": "Gwanghwamun" } }`. Los demás pasos son `click`, `press` y `click_at`, que usa coordenadas para lo que no tiene elemento, como el lienzo de un mapa. Debe ir seguido de `expect` y solo se ejecuta con el tamaño de viewport con el que se guardó.
 
 ## Configuración
 
@@ -145,6 +164,7 @@ Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot a
 | `SPECILLUM_KEEP_POD` | sin definir | Ponlo en `1` para conservar la ventana del pod cuando el agente termine |
 | `SPECILLUM_POD_WINDOW` | `visible` | Con `minimized`, la ventana del pod se abre minimizada en la barra de tareas y sigue funcionando |
 | `SPECILLUM_WINDOW` | `1280x900` | Tamaño de la ventana del pod |
+| `SPECILLUM_RECIPES` | `recipes` junto al directorio del perfil | Directorio de las recetas guardadas |
 
 ## Modelo de seguridad
 
@@ -155,6 +175,7 @@ Lee esto antes de iniciar sesión en algo importante.
 - **El aislamiento es entre agentes y ventanas, no entre sitios.** Los pods comparten cookies a propósito: así es como funcionan las sesiones. Un agente, desde su pod, puede usar cualquier sitio en el que hayas iniciado sesión en la estación.
 - **Inyección de prompts.** Las páginas web pueden contener texto pensado para manipular a los agentes. Limita los permisos del agente y las sesiones de la estación a lo estrictamente necesario para la tarea.
 - **Las herramientas de datos son de solo lectura y ocultan secretos.** `network`, `response` y `page_data` solo leen lo que las pestañas de este pod ya recibieron. Nunca devuelven cabeceras, ocultan claves que parecen secretas (token, password, session, csrf…) y valores con forma de token (JWT, `Bearer …`, formatos comunes de claves de API), y limitan el tamaño de cada resultado. El ocultado es una red de seguridad, no una garantía: el agente aún puede leer la propia página.
+- **Las recetas son compartidas y se quedan en su sitio.** Todos los pods de la estación pueden ejecutar una receta guardada, y las recetas son archivos JSON normales en el disco, así que no pongas secretos en sus pasos. La ejecución se detiene si la pestaña sale del sitio de la receta, y nunca escribe en campos de contraseña.
 - **Código abierto, sin telemetría.** Specillum no envía ningún dato a ninguna parte, y cada línea de código está en este repositorio. Chrome mantiene su propia configuración y telemetría como de costumbre.
 
 ## Preguntas frecuentes

@@ -8,7 +8,8 @@ Key facts:
 - Pods close automatically when the agent disconnects.
 - Token-efficient snapshot: visible interactive elements as one line each with refs like `[e12]`.
 - Read-only data tools (network, response, page_data) return the JSON a pod's pages received or embed, with headers dropped, secrets masked and sizes capped.
-- Tools: pod_status, pod_window, navigate, history, snapshot, read, click, type, press, select, hover, scroll, wait, screenshot, dialog, tabs, network, response, page_data, evaluate.
+- Recipes (the recipe tool) save a series of steps for one site and replay them by element role and name, so a repeated task does not need the page read again. A run stops at the first failed step.
+- Tools: pod_status, pod_window, navigate, history, snapshot, read, click, type, press, select, hover, scroll, wait, screenshot, dialog, tabs, network, response, page_data, evaluate, recipe.
 - Works with any MCP client over stdio. Built on Playwright (playwright-core) over the Chrome DevTools Protocol.
 - Tested on Windows; macOS and Linux browser paths are included.
 
