@@ -166,6 +166,7 @@ Then run it with `{ "action": "run", "name": "place_search", "values": { "query"
 | `SPECILLUM_POD` | `<client>-<random>` | Fixed pod label |
 | `SPECILLUM_KEEP_POD` | unset | Set to `1` to keep the pod window after the agent exits |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
+| `SPECILLUM_HEADLESS` | unset | Set to `1` to run the station with no windows. You cannot watch or log in, and sites can tell it is headless. `specillum open` always shows the browser; close a headless station first |
 | `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
 | `SPECILLUM_RECIPES` | `recipes` next to the profile directory | Directory for saved recipes |
 | `SPECILLUM_ALLOWED_DOMAINS` | any site | Comma-separated sites pods may open, subdomains included |

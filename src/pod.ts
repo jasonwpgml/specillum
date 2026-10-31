@@ -22,6 +22,8 @@ export type Captured = {
 };
 const MAX_CAPTURED = 150;
 const MAX_BODY = 2_000_000;
+// Bodies stay parsed in memory, so the oldest give theirs up past this total.
+const MAX_BODIES = 16_000_000;
 
 export type LogEntry = { page: Page; level: string; text: string };
 const MAX_LOGS = 200;
@@ -141,6 +143,14 @@ export class Pod {
     }
     this.captured.push(entry);
     if (this.captured.length > MAX_CAPTURED) this.captured.shift();
+    let total = this.captured.reduce((sum, c) => sum + (c.json !== undefined ? c.chars ?? 0 : 0), 0);
+    for (const old of this.captured) {
+      if (total <= MAX_BODIES || old === entry) break;
+      if (old.json === undefined) continue;
+      total -= old.chars ?? 0;
+      old.json = undefined;
+      old.skipped = "dropped to save memory; open the page again";
+    }
   }
 
   // Requests that can still change the page, per pod page.
@@ -282,11 +292,28 @@ export class Pod {
       const busy = () => [...inflight.values()].some((t) => t >= since);
       const deadline = Date.now() + 4000;
       let quietSince = busy() ? 0 : Date.now();
-      while (Date.now() < deadline && (!quietSince || Date.now() - quietSince < 250)) {
-        await new Promise((r) => setTimeout(r, 50));
+      while (Date.now() < deadline && (!quietSince || Date.now() - quietSince < 100)) {
+        await new Promise((r) => setTimeout(r, 25));
         if (busy()) quietSince = 0;
         else quietSince ||= Date.now();
       }
+      // A response is rendered after it arrives. Animated pages never stop
+      // changing, so this is capped too. A navigation ends it by destroying the page.
+      await this.active?.evaluate(() => new Promise<void>((done) => {
+        let timer = setTimeout(finish, 100);
+        const cap = setTimeout(finish, 1000);
+        const observer = new MutationObserver(() => {
+          clearTimeout(timer);
+          timer = setTimeout(finish, 100);
+        });
+        function finish() {
+          observer.disconnect();
+          clearTimeout(timer);
+          clearTimeout(cap);
+          done();
+        }
+        observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+      })).catch(() => {});
     }
   }
 

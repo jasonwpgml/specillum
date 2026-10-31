@@ -166,6 +166,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_POD` | `<client>-<random>` | 固定的舱标识 |
 | `SPECILLUM_KEEP_POD` | 未设置 | 设为 `1` 时，智能体退出后保留舱窗口 |
 | `SPECILLUM_POD_WINDOW` | `visible` | 设为 `minimized` 时，舱窗口以最小化状态在任务栏中打开，并照常工作 |
+| `SPECILLUM_HEADLESS` | 未设置 | 设为 `1` 时以无窗口方式运行主站。无法观看或登录，网站也可能识别出无头模式。`specillum open` 总是显示浏览器，请先关闭无头主站 |
 | `SPECILLUM_WINDOW` | `1280x900` | 舱窗口大小 |
 | `SPECILLUM_RECIPES` | 配置文件目录旁的 `recipes` | 已保存配方的目录 |
 | `SPECILLUM_ALLOWED_DOMAINS` | 任意网站 | 舱可以打开的网站，用逗号分隔，包含子域名 |

@@ -9,14 +9,16 @@
 export const REF_ATTR = "data-specillum-ref";
 
 export type SnapshotItem = { ref: string; role: string; name: string };
-export type FrameSnapshot = { meta: string; lines: string[]; items: SnapshotItem[]; hidden: number; doc: string };
+export type FrameSnapshot = { meta: string; lines: string[]; items: SnapshotItem[]; hidden: number; doc: string; lastRef: number };
 
 // prefix makes refs unique across frames: "e" in the main frame, "f2e" in frame 2.
-export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean }): FrameSnapshot {
+// firstRef carries numbering over from the frame's previous document, so a ref
+// from before a navigation can never name an element after it.
+export function snapshotInPage(args: { maxElements: number; refAttr: string; prefix: string; meta: boolean; firstRef: number }): FrameSnapshot {
   const { maxElements, refAttr, prefix } = args;
-  // Numbers are never reused within a document, and doc tells a reload apart.
+  // doc tells a reload apart.
   const w = window as unknown as { __specillum?: { next: number; doc: string } };
-  const state = (w.__specillum ??= { next: 0, doc: Math.random().toString(36).slice(2) });
+  const state = (w.__specillum ??= { next: args.firstRef, doc: Math.random().toString(36).slice(2) });
   const SELECTOR = [
     "a[href]", "button", "input:not([type=hidden])", "select", "textarea", "summary",
     "[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]",
@@ -124,7 +126,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   }
 
   const hidden = candidates.length - picked.length;
-  if (!args.meta) return { meta: "", lines, items, hidden, doc: state.doc };
+  if (!args.meta) return { meta: "", lines, items, hidden, doc: state.doc, lastRef: state.next };
 
   const headings = [...document.querySelectorAll("h1, h2, h3")]
     .filter(visible)
@@ -140,7 +142,7 @@ export function snapshotInPage(args: { maxElements: number; refAttr: string; pre
   ]
     .filter(Boolean)
     .join("\n");
-  return { meta, lines, items, hidden, doc: state.doc };
+  return { meta, lines, items, hidden, doc: state.doc, lastRef: state.next };
 }
 
 // Names what sits on top of an element's center, or null if nothing does.

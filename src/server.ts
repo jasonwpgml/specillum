@@ -6,7 +6,7 @@ import type { Browser, Frame, Locator, Page } from "playwright-core";
 import { z } from "zod";
 import { Pod, assertAllowed, type PodWindow } from "./pod.js";
 import { REF_ATTR, annotateInPage, blockerInPage, readInPage, snapshotInPage, type SnapshotItem } from "./snapshot.js";
-import { connectStation } from "./station.js";
+import { connectStation, headless } from "./station.js";
 import { UNTRUSTED, embeddedDataInPage, outline, pick, redactString, redactUrl, redactValue, render } from "./data.js";
 import { deleteRecipe, fillStep, listRecipes, loadRecipe, onSite, saveRecipe, stepSchema, validateRecipe, type Recipe, type Step } from "./recipes.js";
 
@@ -14,6 +14,14 @@ const VERSION = "0.1.0";
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 const text = (t: string) => ({ content: [{ type: "text", text: t }] as Content[] });
+
+// localhost:3000 looks like a URL with the scheme "localhost", and a local server
+// rarely speaks https.
+function toUrl(input: string): string {
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?([/?#]|$)/i.test(input)) return `http://${input}`;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input) || /^(about|data|blob|javascript):/i.test(input)) return input;
+  return `https://${input}`;
+}
 
 // A web page could ask for any file the agent can name, so uploads only come
 // from the directory the agent runs in and any the user added. Links are
@@ -68,8 +76,10 @@ export async function runServer(): Promise<void> {
   const locate = async (ref: string) => {
     const p = await page();
     const m = /^f(\d+)e\d+$/.exec(ref);
-    const frame = m ? snapshotFrames[Number(m[1])] : p.mainFrame();
+    const index = m ? Number(m[1]) : 0;
+    const frame = m ? snapshotFrames[index] : p.mainFrame();
     if (!frame || frame.isDetached() || frame.page() !== p) {
+      if (frame?.isDetached()) snapshotFrames[index] = undefined;
       throw new Error(`Ref ${ref} belongs to a frame that is gone. Call snapshot again.`);
     }
     const loc = frame.locator(`[${REF_ATTR}="${ref}"]`);
@@ -78,25 +88,41 @@ export async function runServer(): Promise<void> {
   };
 
   // Snapshots the main frame plus every visible iframe (same- or cross-origin).
+  const lastRefs = new WeakMap<Frame, number>();
+  const readFrame = async (frame: Frame, maxElements: number, prefix: string, meta: boolean) => {
+    const s = await frame.evaluate(snapshotInPage, { maxElements, refAttr: REF_ATTR, prefix, meta, firstRef: lastRefs.get(frame) ?? 0 });
+    lastRefs.set(frame, s.lastRef);
+    return s;
+  };
+
   const readPage = async (p: Page, maxElements: number) => {
-    const main = await p.mainFrame().evaluate(snapshotInPage, { maxElements, refAttr: REF_ATTR, prefix: "e", meta: true });
+    const main = await readFrame(p.mainFrame(), maxElements, "e", true);
     const lines = [...main.lines];
     let hidden = main.hidden;
     snapshotItems = [...main.items];
-    for (const frame of p.frames().slice(1)) {
-      const budget = maxElements - lines.length;
-      if (budget <= 0) break;
+    // Ad-heavy pages carry dozens of iframes, and a frame that is navigating never
+    // answers, so they are read together and a slow one is left out. A main frame
+    // that used up the limit leaves no room for them, so they are not read at all.
+    const frames = lines.length < maxElements ? p.frames().slice(1) : [];
+    const subs = await Promise.all(frames.map(async (frame) => {
       const box = await frame.frameElement().then((el) => el.boundingBox()).catch(() => null);
-      if (!box || box.width < 2 || box.height < 2) continue;
+      if (!box || box.width < 2 || box.height < 2) return null;
       const known = snapshotFrames.indexOf(frame);
       const index = known > 0 ? known : snapshotFrames.push(frame) - 1;
-      const sub = await frame
-        .evaluate(snapshotInPage, { maxElements: budget, refAttr: REF_ATTR, prefix: `f${index}e`, meta: false })
-        .catch(() => null);
-      if (!sub || sub.lines.length === 0) continue;
-      lines.push(`-- iframe f${index}: ${frame.url().slice(0, 100)}`, ...sub.lines);
-      snapshotItems.push(...sub.items);
-      hidden += sub.hidden;
+      const sub = await Promise.race([
+        readFrame(frame, maxElements, `f${index}e`, false).catch(() => null),
+        new Promise<null>((r) => setTimeout(r, 2000, null)),
+      ]);
+      return sub && { index, frame, sub };
+    }));
+    for (const found of subs) {
+      if (!found || found.sub.lines.length === 0) continue;
+      const { index, frame, sub } = found;
+      const budget = maxElements - lines.length;
+      hidden += sub.hidden + Math.max(0, sub.lines.length - Math.max(0, budget));
+      if (budget <= 0) continue;
+      lines.push(`-- iframe f${index}: ${frame.url().slice(0, 100)}`, ...sub.lines.slice(0, budget));
+      snapshotItems.push(...sub.items.slice(0, budget));
     }
     return { meta: main.meta, doc: main.doc, lines, hidden };
   };
@@ -143,7 +169,7 @@ export async function runServer(): Promise<void> {
   // Every action reports where the active tab ended up, plus anything that
   // happened on the way (dialogs, new tabs). With snapshot=true it also
   // returns a fresh snapshot so the agent saves a round trip.
-  const after = async (note: string, withSnapshot?: boolean | "changes", settleMs = 300, since?: number) => {
+  const after = async (note: string, withSnapshot?: boolean | "changes", settleMs = 100, since?: number) => {
     const pd = await getPod();
     await pd.settle(settleMs, since);
     const p = await pd.page();
@@ -162,7 +188,7 @@ export async function runServer(): Promise<void> {
     return lines.join("\n");
   };
 
-  const snapshotFlag = z.union([z.boolean(), z.literal("changes")]).optional().describe('Return a fresh snapshot after the action, or with "changes" only what changed since the last one.');
+  const snapshotFlag = z.union([z.boolean(), z.literal("changes")]).optional().describe('Also return a snapshot, or "changes" for only what changed.');
 
   // Waiting out the full timeout behind a cookie banner tells the agent nothing,
   // so a click that cannot land soon says what is in the way. The trial never
@@ -200,6 +226,7 @@ export async function runServer(): Promise<void> {
       inputSchema: { state: z.enum(["show", "minimize"]) },
     },
     async ({ state }) => {
+      if (state === "show" && headless()) throw new Error("SPECILLUM_HEADLESS is set, so there is no window to show. The user can log in with `specillum open` after closing the station.");
       const pd = await getPod();
       await pd.setWindowState(state === "show" ? "normal" : "minimized");
       return text(state === "show" ? "pod window is shown" : "pod window is minimized");
@@ -214,7 +241,7 @@ export async function runServer(): Promise<void> {
     },
     async ({ url, snapshot: s }) => {
       const p = await page();
-      const target = /^[a-z]+:/i.test(url) ? url : `https://${url}`;
+      const target = toUrl(url);
       assertAllowed(target);
       const t0 = Date.now();
       await p.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -512,7 +539,7 @@ export async function runServer(): Promise<void> {
     async ({ action, index, url }) => {
       const pd = await getPod();
       if (action === "new") {
-        const target = url && (/^[a-z]+:/i.test(url) ? url : `https://${url}`);
+        const target = url && toUrl(url);
         if (target) assertAllowed(target);
         await pd.newTab(target);
       }
@@ -749,7 +776,7 @@ export async function runServer(): Promise<void> {
         break;
       }
     }
-    await pd.settle(300);
+    await pd.settle(100);
   };
 
   const describeRecipe = (r: Recipe) => {

@@ -166,6 +166,7 @@ Después se ejecuta con `{ "action": "run", "name": "place_search", "values": { 
 | `SPECILLUM_POD` | `<client>-<random>` | Etiqueta fija del pod |
 | `SPECILLUM_KEEP_POD` | sin definir | Ponlo en `1` para conservar la ventana del pod cuando el agente termine |
 | `SPECILLUM_POD_WINDOW` | `visible` | Con `minimized`, la ventana del pod se abre minimizada en la barra de tareas y sigue funcionando |
+| `SPECILLUM_HEADLESS` | sin definir | Con `1`, la estación se ejecuta sin ventanas. No puedes mirar ni iniciar sesión, y los sitios pueden detectar el modo headless. `specillum open` siempre muestra el navegador; cierra antes la estación headless |
 | `SPECILLUM_WINDOW` | `1280x900` | Tamaño de la ventana del pod |
 | `SPECILLUM_RECIPES` | `recipes` junto al directorio del perfil | Directorio de las recetas guardadas |
 | `SPECILLUM_ALLOWED_DOMAINS` | cualquier sitio | Sitios que los pods pueden abrir, separados por comas, con sus subdominios |

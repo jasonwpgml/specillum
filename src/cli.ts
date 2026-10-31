@@ -18,6 +18,7 @@ Environment:
   SPECILLUM_POD_WINDOW  visible (default) or minimized
   SPECILLUM_WINDOW    Pod window size (default 1280x900)
   SPECILLUM_RECIPES   Directory for saved recipes (default: "recipes" next to the profile)
+  SPECILLUM_HEADLESS  Set to 1 to run the station with no windows (already running stations stay as they are)
   SPECILLUM_ALLOWED_DOMAINS  Comma-separated sites pods may open, subdomains included (default: any)
   SPECILLUM_UPLOAD_DIRS      More directories uploads may come from, besides the agent's own
 `;
@@ -25,6 +26,8 @@ Environment:
 const command = process.argv[2];
 
 if (command === "open") {
+  // This command exists so the user can see the browser and log in.
+  delete process.env.SPECILLUM_HEADLESS;
   await ensureStation();
   console.log(`Station is running on 127.0.0.1:${port} with profile ${profileDir()}.\nLog in to the sites your agents need; logins are shared by every pod.`);
 } else if (command === "help" || command === "--help" || command === "-h") {

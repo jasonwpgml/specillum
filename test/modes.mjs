@@ -68,8 +68,8 @@ try {
   });
 
   await check("minimized pod: popup from a link works too", async () => {
-    await mini.call("navigate", { url: "data:text/html,<title>opener</title><a href='https://example.com/' target=_blank>open</a>", snapshot: true });
-    const r = await mini.call("click", { ref: "e1" });
+    const opener = await mini.call("navigate", { url: "data:text/html,<title>opener</title><a href='https://example.com/' target=_blank>open</a>", snapshot: true });
+    const r = await mini.call("click", { ref: opener.match(/\[(e\d+)\] link "open"/)?.[1] });
     expect(/new tab/.test(r), "popup not reported:\n" + r);
     const s = await mini.call("snapshot");
     const link = s.match(/\[(e\d+)\] link [^\n]*-> [^\n]*iana/)?.[1];

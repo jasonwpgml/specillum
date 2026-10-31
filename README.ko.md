@@ -166,6 +166,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_POD` | `<client>-<random>` | 고정 포드 라벨 |
 | `SPECILLUM_KEEP_POD` | 설정 안 됨 | `1`로 설정하면 에이전트가 종료된 뒤에도 포드 창을 유지 |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized`로 설정하면 포드 창이 작업 표시줄에 최소화된 채 열리고, 그 상태로도 작동 |
+| `SPECILLUM_HEADLESS` | 설정 안 함 | `1`이면 창 없이 스테이션 실행. 지켜보거나 로그인할 수 없고, 사이트가 헤드리스임을 알아챌 수 있음. `specillum open`은 항상 브라우저를 표시하므로 헤드리스 스테이션을 먼저 닫을 것 |
 | `SPECILLUM_WINDOW` | `1280x900` | 포드 창 크기 |
 | `SPECILLUM_RECIPES` | 프로필 디렉터리 옆의 `recipes` | 저장된 레시피 디렉터리 |
 | `SPECILLUM_ALLOWED_DOMAINS` | 모든 사이트 | 포드가 열 수 있는 사이트를 쉼표로 구분해 지정 (하위 도메인 포함) |

@@ -166,6 +166,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_POD` | `<client>-<random>` | 固定のポッドラベル |
 | `SPECILLUM_KEEP_POD` | 未設定 | `1` を指定すると、エージェントの終了後もポッドのウィンドウを残す |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` にするとポッドのウィンドウはタスクバーに最小化された状態で開き、そのまま動作する |
+| `SPECILLUM_HEADLESS` | 未設定 | `1` にするとウィンドウなしでステーションを実行。画面の確認やログインはできず、サイトからヘッドレスだと判別される場合がある。`specillum open` は常にブラウザを表示するため、先にヘッドレスのステーションを閉じること |
 | `SPECILLUM_WINDOW` | `1280x900` | ポッドのウィンドウサイズ |
 | `SPECILLUM_RECIPES` | プロファイルディレクトリの隣の `recipes` | 保存したレシピのディレクトリ |
 | `SPECILLUM_ALLOWED_DOMAINS` | すべてのサイト | ポッドが開けるサイトをカンマ区切りで指定（サブドメインを含む） |

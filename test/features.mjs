@@ -29,6 +29,8 @@ const site = createServer((req, res) => {
 <button onclick="more.innerHTML='<button>Gamma</button>'">Add</button><button onclick="this.previousElementSibling.previousElementSibling.previousElementSibling.remove()">Drop</button>
 <input id=val aria-label=Value>${Array.from({ length: 30 }, (_, i) => `<button>Filler ${i}</button>`).join("")}`));
   }
+  if (url.pathname === "/frame") return res.end(html("Frame", "<button>In frame</button>"));
+  if (url.pathname === "/frames") return res.end(html("Frames", `<h1>Home</h1>${'<iframe src="/frame" width=100 height=50></iframe>'.repeat(20)}`));
   if (url.pathname === "/banner") {
     return res.end(html("Banner", `<button onclick="document.title='clicked'">Buy</button>
 <div id=consent style="position:fixed;inset:0;background:#fff">We use cookies <button onclick="consent.remove()">Accept</button></div>`));
@@ -128,6 +130,31 @@ try {
     await a.call("wait", { seconds: 1 });
     const out = await a.call("snapshot", { changes: true });
     expect(out.includes("elements:") && out.includes('"Alpha"'), "expected full:\n" + out);
+  });
+
+  await check("a ref from before a reload never names an element after it", async () => {
+    const before = await a.call("navigate", { url: `${origin}/list`, snapshot: true });
+    const old = refOf(before, 'button "Beta"');
+    await a.call("navigate", { url: `${origin}/list` });
+    const now = await a.call("snapshot");
+    expect(refOf(now, 'button "Beta"') !== old, "ref was reused:\n" + now);
+    const msg = await a.fails("click", { ref: old });
+    expect(msg.includes("not found"), msg);
+  });
+
+  await check("a bare local address opens over http", async () => {
+    const out = await a.call("navigate", { url: `localhost:${site.address().port}/` });
+    expect(out.includes(`url: ${outsider}/`), out);
+  });
+
+  await check("a snapshot reads many iframes, and within the element limit", async () => {
+    await a.call("navigate", { url: `${origin}/frames` });
+    await a.call("wait", { text: "Home", seconds: 1 }).catch(() => {});
+    const all = await a.call("snapshot");
+    expect(/\[f\d+e\d+\] button "In frame"/.test(all), all);
+    const capped = await a.call("snapshot", { maxElements: 10 });
+    expect(capped.split("\n").filter((l) => /^\[/.test(l)).length <= 10, capped);
+    expect(/more elements not shown/.test(capped), capped);
   });
 
   await check("match finds one element without the rest of the page", async () => {
