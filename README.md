@@ -127,13 +127,17 @@ Ask your agent to do something on the web, for example: *"Check my open GitHub n
 | `hover` | Hover by ref |
 | `drag` | Drag one element onto another by ref |
 | `upload` | Attach local files to a file input or file picker |
+| `pdf` | Save the active tab as a PDF file |
+| `har` | Record this pod's requests to a HAR file, with no bodies and secrets masked |
 | `scroll` | Scroll by screens, or scroll a ref into view |
 | `wait` | Wait for text to appear or go away, for the URL to change, or a fixed time |
 | `screenshot` | JPEG of the active tab; `annotate` labels elements with their refs |
 | `dialog` | Accept or dismiss the next `confirm` / `prompt` dialog (alerts are accepted, confirms dismissed by default) |
 | `tabs` | List, open, switch, or close tabs **of this pod only** |
 | `console` | Console messages and uncaught errors from this pod's tabs |
+| `mock` | Give this pod's tabs a fake answer to matching requests |
 | `evaluate` | Run a JavaScript expression in the active tab |
+| `storage` | Active tab's cookies and web storage; cookie values are never shown (`storage` group only) |
 | `recipe` | Save, list, show, run or delete a series of steps for one site |
 
 Action tools accept `snapshot: true` to return a fresh snapshot in the same call, or `snapshot: "changes"` for only what changed. Tool results also report downloads.
@@ -167,7 +171,7 @@ Then run it with `{ "action": "run", "name": "place_search", "values": { "query"
 | `SPECILLUM_KEEP_POD` | unset | Set to `1` to keep the pod window after the agent exits |
 | `SPECILLUM_POD_WINDOW` | `visible` | `minimized` opens the pod window in the taskbar; it keeps working there |
 | `SPECILLUM_HEADLESS` | unset | Set to `1` to run the station with no windows. You cannot watch or log in, and sites can tell it is headless. `specillum open` always shows the browser; close a headless station first |
-| `SPECILLUM_TOOLS` | all groups | Comma-separated tool groups to add to `core`: `files` (upload), `data` (network, response, page_data), `debug` (console, evaluate), `recipes` (recipe). Empty means `core` only |
+| `SPECILLUM_TOOLS` | all groups | Comma-separated tool groups to add to `core`: `files` (upload, pdf, har), `data` (network, response, page_data), `debug` (console, mock, evaluate), `recipes` (recipe), `storage` (storage). `storage` is only on when named. Empty means `core` only |
 | `SPECILLUM_WINDOW` | `1280x900` | Pod window size |
 | `SPECILLUM_RECIPES` | `recipes` next to the profile directory | Directory for saved recipes |
 | `SPECILLUM_ALLOWED_DOMAINS` | any site | Comma-separated sites pods may open, subdomains included |
@@ -183,6 +187,8 @@ Read this before you log in to anything important.
 - **Prompt injection.** Web pages can contain text meant to manipulate agents. Keep the agent's permissions and the station's logins as narrow as the task needs.
 - **Limit where pods go.** `SPECILLUM_ALLOWED_DOMAINS` stops a pod's tabs and iframes from opening other sites. List only what the task needs. It is a guard rail, not a security boundary: a redirect to another site is caught only after the request was sent, and a page can still fetch or load resources from elsewhere.
 - **Uploads stay near the agent.** `upload` only takes files from the directory the agent runs in, plus `SPECILLUM_UPLOAD_DIRS`, and follows links before checking. Everything in those directories can be sent to a website.
+- **Saved files stay near the agent.** `pdf` and `har` only write new files inside the directory the agent runs in, and never replace one. HAR files keep no bodies and mask secret-looking headers and query parameters.
+- **`storage` is off unless named.** The station's cookies are your logins, shared with every pod. The tool never shows cookie values and only reaches the active tab's site, but deleting a login cookie logs every pod out of that site. Note that `evaluate` can still read cookies a page can read.
 - **Data tools are read-only and redacted.** `network`, `response` and `page_data` only read what this pod's own tabs already received. They never return headers, mask secret-looking keys (token, password, session, csrf…) and token-shaped values (JWT, `Bearer …`, common API key formats), and cap every result. Masking is a safety net, not a guarantee: the agent can still read the page itself.
 - **Recipes are shared and stay on their site.** Every pod on the station can run a saved recipe, and recipes are plain JSON files on disk, so keep secrets out of their steps. A run stops if the tab leaves the recipe's site, and it refuses to type into password fields.
 - **Open source, no telemetry.** Specillum itself sends no data anywhere, and every line is in this repository. Chrome keeps its own settings and telemetry as usual.

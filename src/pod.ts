@@ -3,6 +3,8 @@
 // agent cannot see or touch the user's tabs or another agent's pod.
 import type { Browser, BrowserContext, CDPSession, Page, Request } from "playwright-core";
 import { guardPage } from "./allowlist.js";
+import type { HarRecorder } from "./har.js";
+import { MockList } from "./mocks.js";
 import { ConsoleLog, NetworkLog, watchDownloads } from "./records.js";
 
 const CONTENT_REQUESTS = new Set(["document", "script", "xhr", "fetch"]);
@@ -90,6 +92,8 @@ export class Pod {
 
   readonly network = new NetworkLog();
   readonly console = new ConsoleLog();
+  readonly mocks = new MockList();
+  har: HarRecorder | undefined;
 
   // Requests that can still change the page, per pod page.
   private readonly inflight = new Map<Page, Map<Request, number>>();
@@ -112,6 +116,7 @@ export class Pod {
         const note = (message: string) => void this.notes.push(message);
         watchDownloads(s, note);
         await guardPage(page, note).catch(() => {});
+        await this.mocks.attach(page).catch(() => {});
         return s;
       }).catch(() => undefined),
     );
@@ -123,9 +128,13 @@ export class Pod {
     });
     page.on("requestfinished", (r) => {
       done(r);
+      this.har?.add(r);
       if (r.resourceType() === "xhr" || r.resourceType() === "fetch") void this.network.add(page, r);
     });
-    page.on("requestfailed", done);
+    page.on("requestfailed", (r) => {
+      done(r);
+      this.har?.add(r, r.failure()?.errorText);
+    });
     page.on("console", (m) => this.console.add(page, m.type(), m.text()));
     page.on("pageerror", (e) => this.console.add(page, "error", `uncaught ${e.name}: ${e.message}`));
     page.on("popup", (popup) => {

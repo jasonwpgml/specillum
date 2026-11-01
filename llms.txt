@@ -9,8 +9,8 @@ Key facts:
 - Token-efficient snapshot: visible interactive elements as one line each with refs like `[e12]` that stay stable while the element exists. `match` finds one element and `changes` returns only what changed.
 - Read-only data tools (network, response, page_data) return the JSON a pod's pages received or embed, with headers dropped, secrets masked and sizes capped.
 - Recipes (the recipe tool) save a series of steps for one site and replay them by element role and name, so a repeated task does not need the page read again. A run stops at the first failed step.
-- Tools: pod_status, pod_window, navigate, history, snapshot, read, click, type, press, select, hover, drag, upload, scroll, wait, screenshot, dialog, tabs, network, response, page_data, console, evaluate, recipe.
-- SPECILLUM_TOOLS picks tool groups (files, data, debug, recipes) on top of core, so agents only pay tokens for the tools they use.
+- Tools: pod_status, pod_window, navigate, history, snapshot, read, click, type, press, select, hover, drag, upload, pdf, har, scroll, wait, screenshot, dialog, tabs, network, response, page_data, console, mock, evaluate, recipe, storage.
+- SPECILLUM_TOOLS picks tool groups (files, data, debug, recipes, storage) on top of core, so agents only pay tokens for the tools they use. storage is only on when named.
 - Optional limits: SPECILLUM_ALLOWED_DOMAINS keeps pods on listed sites; uploads only come from the agent's directory and SPECILLUM_UPLOAD_DIRS.
 - Works with any MCP client over stdio. Built on Playwright (playwright-core) over the Chrome DevTools Protocol.
 - Tested on Windows; macOS and Linux browser paths are included.

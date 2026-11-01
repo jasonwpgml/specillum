@@ -127,13 +127,17 @@ args = ["-y", "specillum"]
 | `hover` | 按引用悬停 |
 | `drag` | 按引用把一个元素拖到另一个元素上 |
 | `upload` | 把本地文件添加到文件输入框或文件选择器 |
+| `pdf` | 把当前标签页保存为 PDF 文件 |
+| `har` | 把本舱的请求记录到 HAR 文件（不含正文，敏感信息已遮盖） |
 | `scroll` | 按屏滚动，或将某个引用对应的元素滚动到可视区域 |
 | `wait` | 等待文本出现或消失、URL 变化，或等待固定时长 |
 | `screenshot` | 当前标签页的 JPEG 截图；`annotate` 会在元素上标注引用 |
 | `dialog` | 接受或取消下一个 `confirm` / `prompt` 对话框（默认接受 alert、取消 confirm） |
 | `tabs` | 列出、打开、切换或关闭标签页（**仅限本舱**） |
 | `console` | 本舱标签页的控制台消息和未捕获的错误 |
+| `mock` | 让本舱标签页的匹配请求收到伪造的响应 |
 | `evaluate` | 在当前标签页中执行一段 JavaScript 表达式 |
+| `storage` | 当前标签页的 Cookie 和网页存储；不显示 Cookie 的值（仅 `storage` 分组） |
 | `recipe` | 保存、列出、查看、运行或删除针对某个网站的一系列步骤 |
 
 操作类工具均支持 `snapshot: true` 参数，可在同一次调用中直接返回最新快照；`snapshot: "changes"` 则只返回变化的部分。工具结果还会报告下载情况。
@@ -167,7 +171,7 @@ args = ["-y", "specillum"]
 | `SPECILLUM_KEEP_POD` | 未设置 | 设为 `1` 时，智能体退出后保留舱窗口 |
 | `SPECILLUM_POD_WINDOW` | `visible` | 设为 `minimized` 时，舱窗口以最小化状态在任务栏中打开，并照常工作 |
 | `SPECILLUM_HEADLESS` | 未设置 | 设为 `1` 时以无窗口方式运行主站。无法观看或登录，网站也可能识别出无头模式。`specillum open` 总是显示浏览器，请先关闭无头主站 |
-| `SPECILLUM_TOOLS` | 所有分组 | 要加到 `core` 上的工具分组，用逗号分隔：`files`（upload）、`data`（network, response, page_data）、`debug`（console, evaluate）、`recipes`（recipe）。留空则只用 `core` |
+| `SPECILLUM_TOOLS` | 所有分组 | 要加到 `core` 上的工具分组，用逗号分隔：`files`（upload, pdf, har）、`data`（network, response, page_data）、`debug`（console, mock, evaluate）、`recipes`（recipe）、`storage`（storage）。`storage` 只有指定名称才启用。留空则只用 `core` |
 | `SPECILLUM_WINDOW` | `1280x900` | 舱窗口大小 |
 | `SPECILLUM_RECIPES` | 配置文件目录旁的 `recipes` | 已保存配方的目录 |
 | `SPECILLUM_ALLOWED_DOMAINS` | 任意网站 | 舱可以打开的网站，用逗号分隔，包含子域名 |
@@ -183,6 +187,8 @@ args = ["-y", "specillum"]
 - **提示词注入。** 网页中可能藏有专门用来操纵智能体的文字。请把智能体的权限和主站中登录的账号都限制在任务所需的最小范围内。
 - **限制舱可以访问的地方。** 设置 `SPECILLUM_ALLOWED_DOMAINS` 后，舱的标签页和 iframe 无法打开其他网站。请只列出任务所需的网站。这只是一道护栏，不是安全边界：跳转到其他网站的重定向要在请求发出后才能发现，页面也仍可从其他地方加载资源。
 - **上传范围限于智能体附近。** `upload` 只接受智能体运行目录和 `SPECILLUM_UPLOAD_DIRS` 中的文件，并在解析链接后再做检查。这些目录中的所有文件都可能被发送到网站。
+- **保存的文件限于智能体附近。** `pdf` 和 `har` 只在智能体运行目录中写入新文件，不会覆盖已有文件。HAR 文件不含正文，疑似敏感的请求头和查询参数会被遮盖。
+- **`storage` 默认关闭。** 工作站的 Cookie 就是你的登录状态，由所有舱共享。此工具不显示 Cookie 的值，且只处理当前标签页的网站，但删除登录 Cookie 会让所有舱退出该网站。`evaluate` 仍可读取页面能读取的 Cookie。
 - **数据工具只读且会脱敏。** `network`、`response` 和 `page_data` 只读取本舱标签页已经收到的内容。它们从不返回请求头，会遮蔽看起来像机密的键（token、password、session、csrf 等）和形似令牌的值（JWT、`Bearer …`、常见 API 密钥格式），并限制每个结果的大小。脱敏只是安全网，而非保证：智能体仍然可以读取页面本身。
 - **配方是共享的，且只在指定网站内运行。** 主站上的所有舱都能运行已保存的配方，配方以普通 JSON 文件存放在磁盘上，因此请勿在步骤中写入机密。标签页离开配方指定的网站时运行会停止，也不会向密码框输入内容。
 - **开源，无遥测。** Specillum 本身不会向任何地方发送数据，每一行代码都在本仓库中。Chrome 自身的设置和遥测则照常运作。

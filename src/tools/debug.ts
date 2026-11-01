@@ -34,6 +34,37 @@ export const registerDebugTools: Register = (server, session) => {
   );
 
   server.registerTool(
+    "mock",
+    {
+      description:
+        "Give this pod's tabs a fake answer to requests whose URL contains some text, to test how a page handles an error or empty data. Page navigations are never mocked. Mocks last until cleared.",
+      inputSchema: {
+        action: z.enum(["add", "list", "clear"]),
+        match: z.string().optional().describe("Required for add. Text the request URL contains."),
+        status: z.number().int().min(100).max(599).optional().describe("Default 200."),
+        body: z.string().optional(),
+        contentType: z.string().optional().describe("Default application/json."),
+        abort: z.boolean().optional().describe("Fail the request as a network error instead of answering."),
+      },
+    },
+    async ({ action, match, status, body, contentType, abort }) => {
+      const pd = await session.getPod();
+      if (action === "add") {
+        if (!match) throw new Error("add needs match.");
+        await pd.page();
+        await pd.mocks.add({ match, status: status ?? 200, body: body ?? "", contentType: contentType ?? "application/json", abort: abort ?? false }, pd.pages);
+        return text(`mocking requests containing "${match}"; ${pd.mocks.entries.length} active`);
+      }
+      if (action === "clear") {
+        await pd.mocks.clear(pd.pages);
+        return text("all mocks cleared");
+      }
+      const rows = pd.mocks.entries.map((m) => `"${m.match}" -> ${m.abort ? "network error" : `${m.status} ${m.contentType}, ${m.body.length} chars`}`);
+      return text(rows.length ? rows.join("\n") : "No mocks.");
+    },
+  );
+
+  server.registerTool(
     "evaluate",
     {
       description: "Run a JavaScript expression in the active tab and return the JSON result. For reading data the other tools do not expose.",
