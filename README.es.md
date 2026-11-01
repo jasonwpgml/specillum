@@ -127,13 +127,17 @@ Pídele a tu agente que haga algo en la web, por ejemplo: *"Revisa mis notificac
 | `hover` | Pasa el cursor por encima por referencia |
 | `drag` | Arrastra un elemento sobre otro por referencia |
 | `upload` | Adjunta archivos locales a un campo de archivo o selector de archivos |
+| `pdf` | Guarda la pestaña activa como archivo PDF |
+| `har` | Registra las solicitudes de este pod en un archivo HAR, sin cuerpos y con los secretos ocultos |
 | `scroll` | Desplaza por pantallas, o desplaza hasta que una referencia quede visible |
 | `wait` | Espera a que un texto aparezca o desaparezca, a que cambie la URL o durante un tiempo fijo |
 | `screenshot` | JPEG de la pestaña activa; `annotate` marca los elementos con sus referencias |
 | `dialog` | Acepta o descarta el siguiente diálogo `confirm` / `prompt` (por defecto, los alert se aceptan y los confirm se descartan) |
 | `tabs` | Lista, abre, cambia o cierra pestañas **solo de este pod** |
 | `console` | Mensajes de consola y errores no capturados de las pestañas de este pod |
+| `mock` | Da una respuesta falsa a las solicitudes coincidentes de las pestañas de este pod |
 | `evaluate` | Ejecuta una expresión de JavaScript en la pestaña activa |
+| `storage` | Cookies y almacenamiento web de la pestaña activa; nunca muestra los valores de las cookies (solo grupo `storage`) |
 | `recipe` | Guarda, lista, muestra, ejecuta o elimina una serie de pasos para un sitio |
 
 Las herramientas de acción aceptan `snapshot: true` para devolver un snapshot actualizado en la misma llamada, o `snapshot: "changes"` para devolver solo lo que cambió. Los resultados también informan de las descargas.
@@ -167,7 +171,7 @@ Después se ejecuta con `{ "action": "run", "name": "place_search", "values": { 
 | `SPECILLUM_KEEP_POD` | sin definir | Ponlo en `1` para conservar la ventana del pod cuando el agente termine |
 | `SPECILLUM_POD_WINDOW` | `visible` | Con `minimized`, la ventana del pod se abre minimizada en la barra de tareas y sigue funcionando |
 | `SPECILLUM_HEADLESS` | sin definir | Con `1`, la estación se ejecuta sin ventanas. No puedes mirar ni iniciar sesión, y los sitios pueden detectar el modo headless. `specillum open` siempre muestra el navegador; cierra antes la estación headless |
-| `SPECILLUM_TOOLS` | todos los grupos | Grupos de herramientas que se añaden a `core`, separados por comas: `files` (upload), `data` (network, response, page_data), `debug` (console, evaluate), `recipes` (recipe). Vacío significa solo `core` |
+| `SPECILLUM_TOOLS` | todos los grupos | Grupos de herramientas que se añaden a `core`, separados por comas: `files` (upload, pdf, har), `data` (network, response, page_data), `debug` (console, mock, evaluate), `recipes` (recipe), `storage` (storage). `storage` solo se activa si se nombra. Vacío significa solo `core` |
 | `SPECILLUM_WINDOW` | `1280x900` | Tamaño de la ventana del pod |
 | `SPECILLUM_RECIPES` | `recipes` junto al directorio del perfil | Directorio de las recetas guardadas |
 | `SPECILLUM_ALLOWED_DOMAINS` | cualquier sitio | Sitios que los pods pueden abrir, separados por comas, con sus subdominios |
@@ -183,6 +187,8 @@ Lee esto antes de iniciar sesión en algo importante.
 - **Inyección de prompts.** Las páginas web pueden contener texto pensado para manipular a los agentes. Limita los permisos del agente y las sesiones de la estación a lo estrictamente necesario para la tarea.
 - **Limita adónde van los pods.** `SPECILLUM_ALLOWED_DOMAINS` impide que las pestañas e iframes de un pod abran otros sitios. Incluye solo lo que la tarea necesite. Es una barrera de ayuda, no un límite de seguridad: una redirección a otro sitio solo se detecta después de enviar la solicitud, y una página aún puede cargar recursos de otros lugares.
 - **Las subidas se quedan cerca del agente.** `upload` solo acepta archivos del directorio donde se ejecuta el agente y de `SPECILLUM_UPLOAD_DIRS`, y resuelve los enlaces antes de comprobarlo. Todo lo que haya en esos directorios puede enviarse a un sitio web.
+- **Los archivos guardados se quedan cerca del agente.** `pdf` y `har` solo escriben archivos nuevos dentro del directorio donde se ejecuta el agente y nunca reemplazan uno existente. Los archivos HAR no guardan cuerpos y ocultan los encabezados y parámetros de consulta que parecen secretos.
+- **`storage` está desactivado salvo que se nombre.** Las cookies de la estación son tus inicios de sesión y las comparten todos los pods. La herramienta nunca muestra sus valores y solo alcanza el sitio de la pestaña activa, pero borrar una cookie de sesión cierra la sesión de todos los pods en ese sitio. `evaluate` aún puede leer las cookies que una página puede leer.
 - **Las herramientas de datos son de solo lectura y ocultan secretos.** `network`, `response` y `page_data` solo leen lo que las pestañas de este pod ya recibieron. Nunca devuelven cabeceras, ocultan claves que parecen secretas (token, password, session, csrf…) y valores con forma de token (JWT, `Bearer …`, formatos comunes de claves de API), y limitan el tamaño de cada resultado. El ocultado es una red de seguridad, no una garantía: el agente aún puede leer la propia página.
 - **Las recetas son compartidas y se quedan en su sitio.** Todos los pods de la estación pueden ejecutar una receta guardada, y las recetas son archivos JSON normales en el disco, así que no pongas secretos en sus pasos. La ejecución se detiene si la pestaña sale del sitio de la receta, y nunca escribe en campos de contraseña.
 - **Código abierto, sin telemetría.** Specillum no envía ningún dato a ninguna parte, y cada línea de código está en este repositorio. Chrome mantiene su propia configuración y telemetría como de costumbre.

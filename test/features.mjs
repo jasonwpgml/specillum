@@ -1,6 +1,6 @@
 // Stable refs, change-only snapshots, covered clicks, uploads, console, drag,
 // downloads and the domain allowlist, against a local site.
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,6 +46,15 @@ const site = createServer((req, res) => {
     res.setHeader("content-type", "application/octet-stream");
     res.setHeader("content-disposition", 'attachment; filename="report.bin"');
     return res.end("data");
+  }
+  if (url.pathname === "/api") {
+    res.setHeader("content-type", "application/json");
+    res.setHeader("access-control-allow-origin", "*");
+    return res.end('{"real":true}');
+  }
+  if (url.pathname === "/session") {
+    res.setHeader("set-cookie", ["sid=topsecret; HttpOnly", "theme=dark"]);
+    return res.end(html("Session", `<script>localStorage.setItem('apiToken','abc123');localStorage.setItem('color','blue')</script>`));
   }
   if (url.pathname === "/dl") return res.end(html("Dl", `<a href="/file">Get report</a>`));
   if (url.pathname === "/slow") return res.end(html("Slow", `<p id=l>Loading</p><script>setTimeout(()=>{l.textContent='Ready';history.pushState({},'','/slow/done')},500)</script>`));
@@ -220,6 +229,93 @@ try {
     expect((await a.call("snapshot")).startsWith("(Data below came from the website"), "snapshot");
   });
 
+  await check("pdf saves a new file inside the agent's directory only", async () => {
+    await a.call("navigate", { url: `${origin}/` });
+    const out = await a.call("pdf", { path: "page.pdf" });
+    expect(out.includes("page.pdf"), out);
+    expect(readFileSync(join(workdir, "page.pdf")).subarray(0, 4).toString() === "%PDF", "not a PDF");
+    let msg = await a.fails("pdf", { path: "page.pdf" });
+    expect(msg.includes("already exists"), msg);
+    msg = await a.fails("pdf", { path: join(outside, "away.pdf") });
+    expect(msg.includes("outside the directory"), msg);
+    msg = await a.fails("pdf", { path: "notes.txt" });
+    expect(msg.includes("must end in .pdf"), msg);
+  });
+
+  await check("har records this pod's requests with secrets masked and no bodies", async () => {
+    await a.call("navigate", { url: `${origin}/` });
+    const other = await agent("har-other");
+    await other.call("navigate", { url: `${origin}/?who=other` });
+    await a.call("har", { action: "start", path: "trace.har" });
+    await a.call("evaluate", { expression: `fetch('/api?access_token=abc123&page=2', { headers: { authorization: 'Bearer abc123', 'x-note': 'kept' } }).then(r => r.text())` });
+    await other.call("evaluate", { expression: `fetch('/api?who=other').then(r => r.text())` });
+    await other.client.close();
+    await a.call("evaluate", { expression: `fetch('http://127.0.0.1:1/').catch(() => 'failed')` });
+    const out = await a.call("har", { action: "stop" });
+    expect(out.includes("trace.har"), out);
+    const raw = readFileSync(join(workdir, "trace.har"), "utf8");
+    const { entries } = JSON.parse(raw).log;
+    const api = entries.find((e) => e.request.url.includes("/api"));
+    expect(api?.response.status === 200, raw.slice(0, 800));
+    expect(api.request.queryString.some((q) => q.name === "page" && q.value === "2"), "query lost");
+    expect(api.request.headers.some((h) => h.name === "x-note" && h.value === "kept"), "header lost");
+    expect(!raw.includes("abc123"), "secret in file");
+    expect(!raw.includes('"real"'), "body in file");
+    expect(!raw.includes("who=other"), "another pod's request in file");
+    expect(entries.some((e) => e.response.status === 0), "failed request missing");
+    const msg = await a.fails("har", { action: "stop" });
+    expect(msg.includes("Not recording"), msg);
+  });
+
+  await check("mock answers matching requests, but never a navigation", async () => {
+    await a.call("navigate", { url: `${origin}/` });
+    const get = (u) => a.call("evaluate", { expression: `fetch('${u}', { headers: { 'x-test': '1' } }).then(async r => r.status + ' ' + await r.text(), e => 'failed')` });
+    await a.call("mock", { action: "add", match: "/api", status: 503, body: '{"down":true}' });
+    expect((await get("/api")).includes('503 {\\"down\\":true}'), await get("/api"));
+    expect((await get(`${outsider}/api`)).includes("503"), "cross-origin request was not mocked");
+    await a.call("mock", { action: "add", match: "/api", abort: true });
+    expect((await get("/api")).includes("failed"), "newest mock did not win");
+    await a.call("mock", { action: "add", match: "/list", body: "fake" });
+    const nav = await a.call("navigate", { url: `${origin}/list` });
+    expect(nav.includes("title: List"), nav);
+    const listed = await a.call("mock", { action: "list" });
+    expect(listed.includes("network error") && listed.includes("503"), listed);
+    await a.call("tabs", { action: "new", url: `${origin}/` });
+    expect((await get("/api")).includes("failed"), "a new tab was not mocked");
+    await a.call("tabs", { action: "close" });
+    await a.call("navigate", { url: `${origin}/` });
+    await a.call("mock", { action: "clear" });
+    expect((await get("/api")).includes('real'), "mock outlived clear");
+  });
+
+  await check("storage hides cookie values, masks secrets, and is only there when asked for", async () => {
+    const { tools } = await a.client.listTools();
+    expect(!tools.some((t) => t.name === "storage"), "storage is on by default");
+    const s = await agent("store", { SPECILLUM_TOOLS: "storage" });
+    try {
+      await s.call("navigate", { url: `${origin}/session` });
+      const all = await s.call("storage", { action: "list" });
+      expect(/cookie sid .*httpOnly/.test(all) && /cookie theme /.test(all), all);
+      expect(!all.includes("topsecret") && !all.includes("dark"), all);
+      expect(all.includes("local apiToken = [redacted]") && !all.includes("abc123"), all);
+      expect(all.includes("local color = blue"), all);
+      await s.call("storage", { action: "set", kind: "cookie", name: "added", value: "1" });
+      await s.call("storage", { action: "set", kind: "session", name: "step", value: "2" });
+      const after = await s.call("storage", { action: "list" });
+      expect(after.includes("cookie added") && after.includes("session step = 2"), after);
+      await s.call("storage", { action: "delete", kind: "cookie", name: "sid" });
+      await s.call("storage", { action: "delete", kind: "local", name: "color" });
+      const gone = await s.call("storage", { action: "list" });
+      expect(!gone.includes("cookie sid") && !gone.includes("local color"), gone);
+      const msg = await s.fails("storage", { action: "delete", kind: "cookie", name: "nope" });
+      expect(msg.includes("No cookie named"), msg);
+      await s.call("navigate", { url: "about:blank" });
+      expect((await s.fails("storage", { action: "list" })).includes("Open a site first"), "about:blank allowed");
+    } finally {
+      await s.client.close();
+    }
+  });
+
   await check("SPECILLUM_TOOLS adds groups to core, and rejects unknown ones", async () => {
     const listed = async (groups) => {
       const agentWith = await agent("groups", { SPECILLUM_TOOLS: groups });
@@ -258,6 +354,13 @@ try {
     await walled.call("wait", { seconds: 0.5 });
     const final = await walled.call("tabs", { action: "list" });
     expect(!final.includes("localhost"), `redirect got out:\n${bounced}\n${final}`);
+  });
+  await check("a mock cannot carry a tab past the allowlist", async () => {
+    await walled.call("mock", { action: "add", match: "/away", status: 200, body: "<title>Forged</title>", contentType: "text/html" });
+    const snap = await walled.call("navigate", { url: `${origin}/popup`, snapshot: true });
+    const out = await walled.call("click", { ref: refOf(snap, 'link "Leave"') });
+    expect(out.includes("note: blocked") && out.includes(`url: ${origin}/popup`), out);
+    await walled.call("mock", { action: "clear" });
   });
   await check("the allowlist lets the listed site work", async () => {
     const out = await walled.call("navigate", { url: `${origin}/` });

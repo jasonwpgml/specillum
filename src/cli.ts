@@ -19,7 +19,7 @@ Environment:
   SPECILLUM_WINDOW    Pod window size (default 1280x900)
   SPECILLUM_RECIPES   Directory for saved recipes (default: "recipes" next to the profile)
   SPECILLUM_HEADLESS  Set to 1 to run the station with no windows (already running stations stay as they are)
-  SPECILLUM_TOOLS     Tool groups to add to core: files, data, debug, recipes (default: all)
+  SPECILLUM_TOOLS     Tool groups to add to core: files, data, debug, recipes, storage (default: all but storage)
   SPECILLUM_ALLOWED_DOMAINS  Comma-separated sites pods may open, subdomains included (default: any)
   SPECILLUM_UPLOAD_DIRS      More directories uploads may come from, besides the agent's own
 `;

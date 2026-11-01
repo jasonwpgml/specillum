@@ -20,6 +20,8 @@ Tests launch their own headless Chrome with a temporary profile, so they never t
 | `src/pod.ts` | One agent's private window; only hands out pages it opened |
 | `src/records.ts` | What a pod's pages did: responses, console messages, downloads |
 | `src/allowlist.ts` | `SPECILLUM_ALLOWED_DOMAINS` and the checks behind it |
+| `src/har.ts` | Records a pod's requests to a HAR file, with secrets masked |
+| `src/mocks.ts` | Fake answers to a pod's requests; navigations are never mocked |
 | `src/snapshot.ts` | In-page code for the compact snapshot (refs like `[e12]`) and text reading |
 | `src/pageview.ts` | Snapshots across frames, refs back to elements, and what changed since the last look |
 | `src/session.ts` | What every tool shares: the pod, the page view, and how an action reports back |

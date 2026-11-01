@@ -10,6 +10,7 @@ import { registerNavigationTools } from "./navigation.js";
 import { registerPageTools } from "./page.js";
 import { registerPodTools } from "./pod.js";
 import { registerRecipeTools } from "./recipes.js";
+import { registerStorageTools } from "./storage.js";
 
 export type Register = (server: McpServer, session: Session) => void;
 
@@ -19,11 +20,15 @@ const GROUPS: Record<string, Register[]> = {
   data: [registerDataTools],
   debug: [registerDebugTools],
   recipes: [registerRecipeTools],
+  storage: [registerStorageTools],
 };
 
-// SPECILLUM_TOOLS lists the groups to add to core. Unset means all of them.
+// Groups that reach the user's logins, so an agent only has them if asked for.
+const BY_NAME_ONLY = new Set(["storage"]);
+
+// SPECILLUM_TOOLS lists the groups to add to core. Unset means all but those above.
 export function registerTools(server: McpServer, session: Session): void {
-  const chosen = process.env.SPECILLUM_TOOLS?.split(",").map((g) => g.trim()).filter(Boolean) ?? Object.keys(GROUPS);
+  const chosen = process.env.SPECILLUM_TOOLS?.split(",").map((g) => g.trim()).filter(Boolean) ?? Object.keys(GROUPS).filter((g) => !BY_NAME_ONLY.has(g));
   const unknown = chosen.filter((g) => !GROUPS[g]);
   if (unknown.length) throw new Error(`SPECILLUM_TOOLS has unknown groups: ${unknown.join(", ")}. Groups: ${Object.keys(GROUPS).join(", ")}`);
   for (const group of new Set(["core", ...chosen])) {
